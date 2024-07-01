@@ -23,3 +23,19 @@ clean:
 
 devserve:
 	fsserve serve --config fsserve.json --base ./dist
+
+SERVER_BIN_NAME=arcade
+SERVER_BIN_DIR=./bin
+SERVER_BIN_PATH=$(SERVER_BIN_DIR)/$(SERVER_BIN_NAME)
+SERVER_MAIN_PATH=./pkg/cmd
+
+.PHONY: buildserver runserver devserver
+
+buildserver:
+	mkdir -p $(SERVER_BIN_DIR)
+	go build -trimpath -ldflags "-w -s" -o $(SERVER_BIN_PATH) $(SERVER_MAIN_PATH)
+
+runserver:
+	$(SERVER_BIN_PATH) serve
+
+devserver: buildserver runserver

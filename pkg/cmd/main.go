@@ -1,6 +1,7 @@
 package main
 
 import (
+	"xorkevin.dev/arcade/pkg/ws"
 	"xorkevin.dev/governor"
 )
 
@@ -19,5 +20,9 @@ func main() {
 		ClientPrefix:  "arcadec",
 	}
 
-	_ = governor.New(opts, nil)
+	g := governor.New(opts, nil)
+	g.Register("ws", "/ws", ws.New())
+
+	cmd := governor.NewCmd(opts, nil, g, nil)
+	cmd.Execute()
 }

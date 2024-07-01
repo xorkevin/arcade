@@ -1,0 +1,19 @@
+@layer app {
+  :root {
+    --app-color-success-1: oklch(67% 0.17 147);
+    --app-color-danger-1: oklch(60% 0.2 24);
+  }
+
+  .ws-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--app-color-danger-1);
+    box-shadow: 0 0 8px 0 var(--app-color-danger-1);
+
+    &.ws-connected {
+      background-color: var(--app-color-success-1);
+      box-shadow: 0 0 8px 0 var(--app-color-success-1);
+    }
+  }
+}

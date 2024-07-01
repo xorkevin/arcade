@@ -135,6 +135,17 @@ export default (_env, argv) => {
       port: 3000,
       historyApiFallback: true,
       hot: false,
+      proxy: [
+        {
+          context: ['/api/ws'],
+          target: 'ws://localhost:8080',
+          ws: true,
+        },
+        {
+          context: ['/api'],
+          target: 'http://localhost:8080',
+        },
+      ],
     },
 
     experiments: {
