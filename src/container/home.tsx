@@ -1,3 +1,5 @@
+import {type FC, useCallback, useEffect, useRef, useState} from 'react';
+
 import {
   Box,
   BoxSize,
@@ -6,8 +8,8 @@ import {
   FlexDir,
 } from '@xorkevin/nuke/component/box';
 import {
-  ButtonGroup,
   Button,
+  ButtonGroup,
   ButtonVariant,
 } from '@xorkevin/nuke/component/button';
 import {
@@ -18,7 +20,7 @@ import {
   useForm,
 } from '@xorkevin/nuke/component/form';
 import {
-  Result,
+  type Result,
   isNil,
   isNonNil,
   isResOk,
@@ -26,7 +28,6 @@ import {
   parseURL,
   useDebounceCallback,
 } from '@xorkevin/nuke/computil';
-import {useCallback, useRef, useState, type FC} from 'react';
 
 const formInitState = () => ({search: ''});
 
@@ -132,6 +133,25 @@ const Video: FC = () => {
     loadVideo();
   }, [loadVideo]);
 
+  const videoElem = useRef<HTMLVideoElement | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    if (isNonNil(videoElem.current)) {
+      videoElem.current.addEventListener(
+        'error',
+        () => {
+          console.error('Video resource error', {
+            cause: videoElem.current?.error,
+          });
+        },
+        {signal: controller.signal},
+      );
+    }
+    return () => {
+      controller.abort();
+    };
+  }, [videoElem]);
+
   return (
     <Flex dir={FlexDir.Col} gap="16px">
       <Form form={form} onSubmit={handleSubmit}>
@@ -149,9 +169,12 @@ const Video: FC = () => {
           </ButtonGroup>
         </Flex>
       </Form>
-      {videoURL.length > 0 && (
-        <video src={videoURL} controls crossOrigin="anonymous" />
-      )}
+      <video
+        ref={videoElem}
+        src={videoURL.length > 0 ? videoURL : undefined}
+        controls
+        crossOrigin="anonymous"
+      />
     </Flex>
   );
 };

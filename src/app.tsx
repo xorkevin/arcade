@@ -2,14 +2,14 @@ import {
   type ChangeEventHandler,
   type FC,
   Suspense,
-  useCallback,
-  useMemo,
-  useEffect,
-  useState,
-  useRef,
   createContext,
-  useContext,
   lazy,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
 } from 'react';
 
 import {
@@ -37,8 +37,8 @@ import {
   parseJSON,
   valToEnum,
 } from '@xorkevin/nuke/computil';
-import {type Route, Routes} from '@xorkevin/nuke/router';
 import {WS} from '@xorkevin/nuke/net';
+import {type Route, Routes} from '@xorkevin/nuke/router';
 
 import styles from './app.module.css';
 
@@ -173,7 +173,8 @@ const WSStatus = () => {
         })}
       />
       <code>
-        ping: {isNil(wsPing) ? '-' : wsPing < 0 ? '>5000' : `${wsPing}`}ms
+        ping: {isNil(wsPing) ? '-' : wsPing < 0 ? '>5000' : String(wsPing)}
+        ms
       </code>
     </Flex>
   );
