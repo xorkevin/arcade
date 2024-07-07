@@ -72,7 +72,7 @@ const Search: FC = () => {
       },
       [formState, setSearchRes],
     ),
-    384,
+    250,
   );
 
   const handleSubmit = useCallback(() => {
@@ -90,12 +90,7 @@ const Search: FC = () => {
             </Flex>
           </Field>
           <ButtonGroup gap>
-            <Button
-              variant={ButtonVariant.Primary}
-              type="submit"
-              name="submit"
-              value="submit"
-            >
+            <Button variant={ButtonVariant.Primary} type="submit">
               Search
             </Button>
           </ButtonGroup>
@@ -110,10 +105,62 @@ const Search: FC = () => {
   );
 };
 
+const fsOrigin = ARCADE_FS_ORIGIN;
+
+const videoInitState = () => ({video: ''});
+
+const Video: FC = () => {
+  const form = useForm(videoInitState);
+
+  const formState = useRef(form.state);
+  formState.current = form.state;
+
+  const [videoURL, setVideoURL] = useState('');
+
+  const loadVideo = useDebounceCallback(
+    useCallback(() => {
+      const u = parseURL(`/fs/${formState.current.video}`, fsOrigin);
+      if (isNil(u)) {
+        return;
+      }
+      setVideoURL(u.toString());
+    }, [formState, setVideoURL]),
+    250,
+  );
+
+  const handleSubmit = useCallback(() => {
+    loadVideo();
+  }, [loadVideo]);
+
+  return (
+    <Flex dir={FlexDir.Col} gap="16px">
+      <Form form={form} onSubmit={handleSubmit}>
+        <Flex dir={FlexDir.Col} alignItems={FlexAlignItems.Start} gap="16px">
+          <Field>
+            <Flex dir={FlexDir.Col}>
+              <Label>Video</Label>
+              <Input name="video" />
+            </Flex>
+          </Field>
+          <ButtonGroup gap>
+            <Button variant={ButtonVariant.Primary} type="submit">
+              Load
+            </Button>
+          </ButtonGroup>
+        </Flex>
+      </Form>
+      {videoURL.length > 0 && (
+        <video src={videoURL} controls crossOrigin="anonymous" />
+      )}
+    </Flex>
+  );
+};
+
 const Home: FC = () => {
   return (
     <Box size={BoxSize.S6} center>
       <Search />
+      <Video />
     </Box>
   );
 };

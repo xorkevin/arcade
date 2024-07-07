@@ -1,5 +1,6 @@
 import {fileURLToPath} from 'node:url';
 
+import webpack from 'webpack';
 import HtmlPlugin from 'html-webpack-plugin';
 import MiniCssExtractPlugin from 'mini-css-extract-plugin';
 
@@ -110,6 +111,11 @@ export default (_env, argv) => {
       new MiniCssExtractPlugin({
         filename: 'static/[name]-[contenthash].css',
         chunkFilename: 'static/chunk-[id]-[contenthash].css',
+      }),
+      new webpack.DefinePlugin({
+        ARCADE_FS_ORIGIN: JSON.stringify(
+          process.env.ARCADE_FS_ORIGIN ?? 'http://localhost:8081',
+        ),
       }),
     ],
 
