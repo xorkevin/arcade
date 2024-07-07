@@ -9,6 +9,7 @@ import {
   useRef,
   createContext,
   useContext,
+  lazy,
 } from 'react';
 
 import {
@@ -43,7 +44,13 @@ import styles from './app.module.css';
 
 const fallbackView = <div>Loading</div>;
 
-const routes: Route[] = [];
+const routes: Route[] = [
+  {
+    path: '',
+    exact: true,
+    component: lazy(async () => await import('./container/home.js')),
+  },
+];
 
 const WSContext = createContext(new WS('ws://localhost:3000'));
 

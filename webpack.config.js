@@ -137,6 +137,10 @@ export default (_env, argv) => {
           context: ['/api'],
           target: 'http://localhost:8080',
         },
+        {
+          context: ['/fs'],
+          target: 'http://localhost:8081',
+        },
       ],
     },
 
