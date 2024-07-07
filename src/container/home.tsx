@@ -146,6 +146,15 @@ const Video: FC = () => {
         },
         {signal: controller.signal},
       );
+      videoElem.current.addEventListener(
+        'abort',
+        () => {
+          console.error('Video resource abort', {
+            cause: videoElem.current?.error,
+          });
+        },
+        {signal: controller.signal},
+      );
     }
     return () => {
       controller.abort();
@@ -172,8 +181,8 @@ const Video: FC = () => {
       <video
         ref={videoElem}
         src={videoURL.length > 0 ? videoURL : undefined}
-        controls
-        crossOrigin="anonymous"
+        controls={videoURL.length > 0}
+        muted
       />
     </Flex>
   );
