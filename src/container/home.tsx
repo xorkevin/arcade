@@ -155,6 +155,10 @@ type SearchListProps = {
 };
 
 const SearchList: FC<SearchListProps> = ({searchRes, search, load}) => {
+  const handleHome = useCallback(() => {
+    search('');
+  }, [search]);
+
   const searchDir = searchRes.searchDir;
   const handleBack = useCallback(() => {
     const idx = searchDir.lastIndexOf('/');
@@ -167,13 +171,16 @@ const SearchList: FC<SearchListProps> = ({searchRes, search, load}) => {
 
   return (
     <Flex dir={FlexDir.Col} gap="16px">
-      {searchDir.length > 0 && (
-        <ButtonGroup gap>
+      <ButtonGroup gap>
+        <Button variant={ButtonVariant.Subtle} onClick={handleHome}>
+          Home
+        </Button>
+        {searchDir.length > 0 && (
           <Button variant={ButtonVariant.Subtle} onClick={handleBack}>
             <ChevronLeft /> Back
           </Button>
-        </ButtonGroup>
-      )}
+        )}
+      </ButtonGroup>
       <ul className={modClassNames(styles, 'searchlist')}>
         {searchRes.entries.map((v) => (
           <SearchListEntry
