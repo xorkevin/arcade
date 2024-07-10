@@ -1,0 +1,13 @@
+@layer app {
+  .searchlist {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    align-items: start;
+
+    & > li {
+      display: flex;
+      align-items: center;
+    }
+  }
+}
