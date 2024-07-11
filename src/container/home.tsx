@@ -303,10 +303,11 @@ const Search: FC<SearchProps> = ({load}) => {
 };
 
 type VideoProps = {
-  videoURL: string;
+  name: string;
+  url: string;
 };
 
-const Video: FC<VideoProps> = ({videoURL}) => {
+const Video: FC<VideoProps> = ({name, url}) => {
   const videoElem = useRef<HTMLVideoElement | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -336,28 +337,31 @@ const Video: FC<VideoProps> = ({videoURL}) => {
   }, [videoElem]);
 
   return (
-    <video
-      ref={videoElem}
-      src={videoURL.length > 0 ? videoURL : undefined}
-      controls={videoURL.length > 0}
-      muted
-    />
+    <Flex dir={FlexDir.Col} gap="8px">
+      <video
+        ref={videoElem}
+        src={url.length > 0 ? url : undefined}
+        controls={url.length > 0}
+        muted
+      />
+      <code>{name}</code>
+    </Flex>
   );
 };
 
 const fsOrigin = ARCADE_FS_ORIGIN;
 
 const Home: FC = () => {
-  const [videoURL, setVideoURL] = useState('');
+  const [videoURL, setVideoURL] = useState({name: '', url: ''});
 
   const loadVideo = useDebounceCallback(
     useCallback(
-      (_signal: AbortSignal, video: string) => {
-        const u = parseURL(`/fs/${video}`, fsOrigin);
+      (_signal: AbortSignal, name: string) => {
+        const u = parseURL(`/fs/${name}`, fsOrigin);
         if (isNil(u)) {
           return;
         }
-        setVideoURL(u.toString());
+        setVideoURL({name, url: u.toString()});
       },
       [setVideoURL],
     ),
@@ -374,7 +378,9 @@ const Home: FC = () => {
   return (
     <Box size={BoxSize.S6} center padded>
       <Flex dir={FlexDir.Col} gap="16px">
-        {videoURL.length > 0 && <Video videoURL={videoURL} />}
+        {videoURL.url.length > 0 && (
+          <Video name={videoURL.name} url={videoURL.url} />
+        )}
         <Search load={load} />
       </Flex>
     </Box>
