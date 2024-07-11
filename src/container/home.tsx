@@ -53,11 +53,9 @@ const SearchListEntryFile: FC<SearchListEntryFileProps> = ({
     load(`${searchDir.length > 0 ? `${searchDir}/` : ''}${name}`);
   }, [load, searchDir, name]);
   return (
-    <li>
-      <Button variant={ButtonVariant.Subtle} onClick={handleClick}>
-        {name}
-      </Button>
-    </li>
+    <Button variant={ButtonVariant.Subtle} onClick={handleClick}>
+      {name}
+    </Button>
   );
 };
 
@@ -92,11 +90,9 @@ const SearchListEntryDir: FC<SearchListEntryDirProps> = ({
     search(`${searchDir.length > 0 ? `${searchDir}/` : ''}${name}`);
   }, [search, searchDir, name]);
   return (
-    <li>
-      <Button variant={ButtonVariant.Subtle} onClick={handleClick}>
-        {name} <ChevronRight />
-      </Button>
-    </li>
+    <Button variant={ButtonVariant.Subtle} onClick={handleClick}>
+      {name} <ChevronRight />
+    </Button>
   );
 };
 
@@ -324,9 +320,50 @@ const Video: FC<VideoProps> = ({name, url}) => {
       videoElem.current.addEventListener(
         'abort',
         () => {
-          console.error('Video resource abort', {
-            cause: videoElem.current?.error,
-          });
+          console.error('Video resource abort');
+        },
+        {signal: controller.signal},
+      );
+      videoElem.current.addEventListener(
+        'stalled',
+        () => {
+          console.error('Video resource stalled');
+        },
+        {signal: controller.signal},
+      );
+
+      videoElem.current.addEventListener(
+        'pause',
+        () => {
+          console.info('Pause video');
+        },
+        {signal: controller.signal},
+      );
+      videoElem.current.addEventListener(
+        'play',
+        () => {
+          console.info('Play video');
+        },
+        {signal: controller.signal},
+      );
+      videoElem.current.addEventListener(
+        'seeking',
+        () => {
+          console.info('Seeking video');
+        },
+        {signal: controller.signal},
+      );
+      videoElem.current.addEventListener(
+        'canplaythrough',
+        () => {
+          console.info('Can playthrough video');
+        },
+        {signal: controller.signal},
+      );
+      videoElem.current.addEventListener(
+        'waiting',
+        () => {
+          console.info('Waiting video');
         },
         {signal: controller.signal},
       );
