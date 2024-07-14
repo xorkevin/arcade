@@ -2,7 +2,6 @@ import {
   type ChangeEventHandler,
   type FC,
   Suspense,
-  createContext,
   lazy,
   useCallback,
   useContext,
@@ -42,6 +41,8 @@ import {type Route, Routes} from '@xorkevin/nuke/router';
 
 import styles from './app.module.css';
 
+import {WSContext} from '@/net/ws.js';
+
 const fallbackView = <div>Loading</div>;
 
 const routes: Route[] = [
@@ -52,10 +53,8 @@ const routes: Route[] = [
   },
 ];
 
-const WSContext = createContext(new WS('ws://localhost:3000'));
-
 const WSStatus = () => {
-  const ws = useContext(WSContext);
+  const {ws, pingRef} = useContext(WSContext);
   const [wsStatus, setWSStatus] = useState(false);
   const [wsPing, setWSPing] = useState<number | undefined>(undefined);
   const lastPing = useRef<{id: string; at: number} | undefined>(undefined);
@@ -89,7 +88,6 @@ const WSStatus = () => {
       'open',
       () => {
         setWSStatus(true);
-        setWSPing(undefined);
         lastPing.current = undefined;
         if (isNonNil(timer)) {
           clearInterval(timer);
@@ -99,6 +97,7 @@ const WSStatus = () => {
         timer = setInterval(() => {
           if (isNonNil(lastPing.current)) {
             setWSPing(-1);
+            pingRef.current = -1;
             lastPing.current = undefined;
           }
           sendPing();
@@ -111,6 +110,7 @@ const WSStatus = () => {
       () => {
         setWSStatus(false);
         setWSPing(undefined);
+        pingRef.current = undefined;
         lastPing.current = undefined;
         if (isNonNil(timer)) {
           clearInterval(timer);
@@ -124,10 +124,8 @@ const WSStatus = () => {
       'message',
       (ev: MessageEvent<string>) => {
         const data = parseJSON(ev.data);
-        if (!isObject(data)) {
-          return;
-        }
         if (
+          !isObject(data) ||
           !('id' in data) ||
           !('ch' in data) ||
           !('v' in data) ||
@@ -140,9 +138,11 @@ const WSStatus = () => {
         ) {
           return;
         }
-        setWSPing(
-          Math.ceil(performance.now() - lastPing.current.at - data.v.d),
+        const ping = Math.ceil(
+          performance.now() - lastPing.current.at - data.v.d,
         );
+        setWSPing(ping);
+        pingRef.current = ping;
         lastPing.current = undefined;
       },
       {signal: controller.signal},
@@ -162,7 +162,7 @@ const WSStatus = () => {
         clearInterval(timer);
       }
     };
-  }, [ws, setWSStatus, sendPing, setWSPing]);
+  }, [ws, setWSStatus, lastPing, sendPing, setWSPing, pingRef]);
 
   return (
     <Flex alignItems={FlexAlignItems.Center} gap="8px">
@@ -198,8 +198,10 @@ const App: FC = () => {
     ]);
     return ws;
   }, []);
+  const pingRef = useRef<number | undefined>(undefined);
+  const wsctx = useMemo(() => ({ws, pingRef}), [ws, pingRef]);
   return (
-    <WSContext.Provider value={ws}>
+    <WSContext.Provider value={wsctx}>
       <div>
         <header className={NavClasses.Banner}>
           <Box

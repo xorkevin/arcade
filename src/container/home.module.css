@@ -10,4 +10,11 @@
       align-items: center;
     }
   }
+
+  .memberlist {
+    list-style: none;
+    display: flex;
+    flex-direction: row;
+    align-items: start;
+  }
 }

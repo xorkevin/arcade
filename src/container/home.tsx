@@ -1,4 +1,12 @@
-import {type FC, useCallback, useEffect, useRef, useState} from 'react';
+import {
+  type FC,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import {
   Box,
@@ -24,13 +32,19 @@ import {
   isArray,
   isNil,
   isNonNil,
+  isObject,
   isSignalAborted,
   modClassNames,
+  parseJSON,
   parseURL,
+  sleep,
   useDebounceCallback,
 } from '@xorkevin/nuke/computil';
+import {useRoute, useRouter} from '@xorkevin/nuke/router';
 
 import styles from './home.module.css';
+
+import {WSContext} from '@/net/ws.js';
 
 type DirEntry = {name: string; dir?: boolean};
 type SearchRes = {
@@ -221,14 +235,12 @@ const Search: FC<SearchProps> = ({load}) => {
           }
           const body = (await res.json()) as unknown;
           if (
-            typeof body !== 'object' ||
-            isNil(body) ||
+            !isObject(body) ||
             !('entries' in body) ||
             !isArray(body.entries) ||
             body.entries.some(
               (v) =>
-                typeof v !== 'object' ||
-                isNil(v) ||
+                !isObject(v) ||
                 !('name' in v) ||
                 typeof v.name !== 'string' ||
                 ('dir' in v && typeof v.dir !== 'boolean'),
@@ -386,6 +398,240 @@ const Video: FC<VideoProps> = ({name, url}) => {
   );
 };
 
+const Checkmark = () => (
+  <svg
+    aria-hidden={true}
+    width="16"
+    height="16"
+    viewBox="0 0 24 24"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="square"
+    strokeLinejoin="miter"
+    fill="none"
+  >
+    <polyline points="5 12 10 17 20 7" />
+  </svg>
+);
+
+type MemberStatus = {
+  name: string;
+  ping: number | undefined;
+};
+
+type MemberListProps = {
+  members: Record<string, MemberStatus>;
+};
+
+const MemberList: FC<MemberListProps> = ({members}) => {
+  return (
+    <ul className={modClassNames(styles, 'memberlist')}>
+      {Object.entries(members).map(([id, member]) => (
+        <li key={id}>
+          {member.name} (
+          <code>
+            {isNil(member.ping)
+              ? '-'
+              : member.ping < 0
+                ? '>5000'
+                : String(member.ping)}
+            ms
+          </code>
+          )
+        </li>
+      ))}
+    </ul>
+  );
+};
+
+type RoomStatus = {
+  members: Record<string, MemberStatus>;
+  video: string | undefined;
+};
+
+const nameInitState = () => ({name: crypto.randomUUID() as string});
+
+type StatusBarProps = {
+  load: (v: string) => void;
+};
+
+const StatusBar: FC<StatusBarProps> = ({load}) => {
+  const {ws, pingRef} = useContext(WSContext);
+
+  const router = useRouter();
+  const routerURL = router.url;
+  const room = useMemo(() => {
+    const v = routerURL.searchParams.get('room');
+    if (isNil(v) || v.length === 0) {
+      return;
+    }
+    return v;
+  }, [routerURL]);
+
+  const {navigate} = useRoute();
+
+  const createNewRoom = useCallback(() => {
+    const search = new URLSearchParams({
+      room: crypto.randomUUID(),
+    }).toString();
+    navigate({search}, {replace: true});
+  }, [navigate]);
+
+  const [roomStatus, setRoomStatus] = useState<RoomStatus | undefined>(
+    undefined,
+  );
+
+  const form = useForm(nameInitState);
+
+  const [name, setName] = useState(form.state.name);
+  const lastStatus = useRef<{id: string; at: number} | undefined>(undefined);
+  const sendPing = useCallback(() => {
+    if (!ws.isOpen() || isNil(room)) {
+      return;
+    }
+    const id = crypto.randomUUID();
+    ws.send(
+      JSON.stringify({
+        id,
+        ch: 'arcade.room',
+        v: {
+          room,
+          name,
+          ping: pingRef.current,
+        },
+      }),
+    );
+    lastStatus.current = {id, at: performance.now()};
+  }, [ws, lastStatus, room, name, pingRef]);
+  useEffect(() => {
+    setRoomStatus(undefined);
+    if (isNil(room)) {
+      return;
+    }
+
+    const controller = new AbortController();
+
+    let timer: number | undefined;
+    ws.addEventListener(
+      'open',
+      () => {
+        lastStatus.current = undefined;
+        if (isNonNil(timer)) {
+          clearInterval(timer);
+          timer = undefined;
+        }
+        sendPing();
+        timer = setInterval(() => {
+          if (isNonNil(lastStatus.current)) {
+            setRoomStatus(undefined);
+            lastStatus.current = undefined;
+          }
+          sendPing();
+        }, 5000);
+      },
+      {signal: controller.signal},
+    );
+    ws.addEventListener(
+      'close',
+      () => {
+        setRoomStatus(undefined);
+        lastStatus.current = undefined;
+        if (isNonNil(timer)) {
+          clearInterval(timer);
+          timer = undefined;
+        }
+      },
+      {signal: controller.signal},
+    );
+
+    ws.addEventListener(
+      'message',
+      (ev: MessageEvent<string>) => {
+        const data = parseJSON(ev.data);
+        if (!isObject(data)) {
+          return;
+        }
+        if (
+          !('id' in data) ||
+          !('ch' in data) ||
+          !('v' in data) ||
+          isNil(lastStatus.current) ||
+          data.id !== lastStatus.current.id ||
+          data.ch !== 'arcade.room' ||
+          !isObject(data.v) ||
+          !('members' in data.v) ||
+          !isObject(data.v.members) ||
+          Object.values(data.v.members).some(
+            (v: unknown) =>
+              !isObject(v) ||
+              !('name' in v) ||
+              typeof v.name !== 'string' ||
+              ('ping' in v && typeof v.ping !== 'number'),
+          ) ||
+          ('video' in data.v && typeof data.v !== 'string')
+        ) {
+          return;
+        }
+        setRoomStatus({
+          members: data.v.members as Record<string, MemberStatus>,
+          video: (data.v as unknown as {video: string | undefined}).video,
+        });
+      },
+      {signal: controller.signal},
+    );
+
+    void (async () => {
+      await sleep(250, {signal: controller.signal});
+      if (isSignalAborted(controller.signal)) {
+        return;
+      }
+      sendPing();
+    })();
+
+    return () => {
+      controller.abort();
+      if (isNonNil(timer)) {
+        clearInterval(timer);
+      }
+    };
+  }, [ws, room, setRoomStatus, lastStatus, sendPing, load]);
+
+  const formState = form.state;
+  const handleSubmit = useCallback(() => {
+    setName(formState.name);
+  }, [setName, formState]);
+
+  return (
+    <Flex dir={FlexDir.Col} gap="8px">
+      <Flex alignItems={FlexAlignItems.Start} gap="8px">
+        <ButtonGroup gap>
+          <Button variant={ButtonVariant.Subtle} onClick={createNewRoom}>
+            New Room
+          </Button>
+        </ButtonGroup>
+        <Form form={form} onSubmit={handleSubmit}>
+          <Flex alignItems={FlexAlignItems.Start} gap="8px">
+            <Flex gap="8px">
+              <Field>
+                <Flex>
+                  <Label>Username</Label>
+                  <Input name="name" />
+                </Flex>
+              </Field>
+            </Flex>
+            <ButtonGroup gap>
+              <Button type="submit">
+                <Checkmark />
+              </Button>
+            </ButtonGroup>
+          </Flex>
+        </Form>
+      </Flex>
+      {isNonNil(roomStatus) && <MemberList members={roomStatus.members} />}
+    </Flex>
+  );
+};
+
 const fsOrigin = ARCADE_FS_ORIGIN;
 
 const Home: FC = () => {
@@ -418,6 +664,7 @@ const Home: FC = () => {
         {videoURL.url.length > 0 && (
           <Video name={videoURL.name} url={videoURL.url} />
         )}
+        <StatusBar load={load} />
         <Search load={load} />
       </Flex>
     </Box>
