@@ -310,89 +310,105 @@ const Search: FC<SearchProps> = ({load}) => {
 };
 
 type VideoProps = {
+  elem: HTMLVideoElement | null;
+  setElem: (e: HTMLVideoElement) => void;
   name: string;
   url: string;
 };
 
-const Video: FC<VideoProps> = ({name, url}) => {
-  const videoElem = useRef<HTMLVideoElement | null>(null);
+const Video: FC<VideoProps> = ({elem, setElem, name, url}) => {
   useEffect(() => {
-    const controller = new AbortController();
-    if (isNonNil(videoElem.current)) {
-      videoElem.current.addEventListener(
-        'error',
-        () => {
-          console.error('Video resource error', {
-            cause: videoElem.current?.error,
-          });
-        },
-        {signal: controller.signal},
-      );
-      videoElem.current.addEventListener(
-        'abort',
-        () => {
-          console.error('Video resource abort');
-        },
-        {signal: controller.signal},
-      );
-      videoElem.current.addEventListener(
-        'stalled',
-        () => {
-          console.error('Video resource stalled');
-        },
-        {signal: controller.signal},
-      );
-
-      videoElem.current.addEventListener(
-        'pause',
-        () => {
-          console.info('Pause video');
-        },
-        {signal: controller.signal},
-      );
-      videoElem.current.addEventListener(
-        'play',
-        () => {
-          console.info('Play video');
-        },
-        {signal: controller.signal},
-      );
-      videoElem.current.addEventListener(
-        'seeking',
-        () => {
-          console.info('Seeking video');
-        },
-        {signal: controller.signal},
-      );
-      videoElem.current.addEventListener(
-        'canplaythrough',
-        () => {
-          console.info('Can playthrough video');
-        },
-        {signal: controller.signal},
-      );
-      videoElem.current.addEventListener(
-        'waiting',
-        () => {
-          console.info('Waiting video');
-        },
-        {signal: controller.signal},
-      );
+    if (isNil(elem)) {
+      return;
     }
+    const controller = new AbortController();
+    elem.addEventListener(
+      'error',
+      () => {
+        console.error('Video resource error', {
+          cause: elem?.error,
+        });
+      },
+      {signal: controller.signal},
+    );
+    elem.addEventListener(
+      'abort',
+      () => {
+        console.error('Video resource abort');
+      },
+      {signal: controller.signal},
+    );
+    elem.addEventListener(
+      'stalled',
+      () => {
+        console.error('Video resource stalled');
+      },
+      {signal: controller.signal},
+    );
+
+    elem.addEventListener(
+      'pause',
+      () => {
+        console.info('Pause video');
+      },
+      {signal: controller.signal},
+    );
+    elem.addEventListener(
+      'play',
+      () => {
+        console.info('Play video');
+      },
+      {signal: controller.signal},
+    );
+    elem.addEventListener(
+      'seeking',
+      () => {
+        console.info('Seeking video', {time: elem.currentTime});
+      },
+      {signal: controller.signal},
+    );
+    elem.addEventListener(
+      'canplaythrough',
+      () => {
+        console.info('Can playthrough video');
+      },
+      {signal: controller.signal},
+    );
+    elem.addEventListener(
+      'waiting',
+      () => {
+        console.info('Waiting video');
+      },
+      {signal: controller.signal},
+    );
     return () => {
       controller.abort();
     };
-  }, [videoElem]);
+  }, [elem]);
+
+  const seekHalf = useCallback(() => {
+    if (isNil(elem) || Number.isNaN(elem.duration)) {
+      return;
+    }
+    elem.currentTime = elem.duration / 2;
+  }, [elem]);
 
   return (
     <Flex dir={FlexDir.Col} gap="8px">
       <video
-        ref={videoElem}
+        ref={setElem}
         src={url.length > 0 ? url : undefined}
         controls={url.length > 0}
         muted
       />
-      <code>{name}</code>
+      <Flex alignItems={FlexAlignItems.Start} gap="8px">
+        <code>{name}</code>
+        <ButtonGroup gap>
+          <Button variant={ButtonVariant.Subtle} onClick={seekHalf}>
+            Seek 50%
+          </Button>
+        </ButtonGroup>
+      </Flex>
     </Flex>
   );
 };
@@ -632,6 +648,7 @@ const StatusBar: FC<StatusBarProps> = ({load}) => {
 
   return (
     <Flex dir={FlexDir.Col} gap="8px">
+      {isNonNil(roomStatus) && <MemberList members={roomStatus.members} />}
       <Flex alignItems={FlexAlignItems.Start} gap="8px">
         <ButtonGroup gap>
           <Button variant={ButtonVariant.Subtle} onClick={createNewRoom}>
@@ -649,14 +666,13 @@ const StatusBar: FC<StatusBarProps> = ({load}) => {
               </Field>
             </Flex>
             <ButtonGroup gap>
-              <Button type="submit">
+              <Button variant={ButtonVariant.Subtle} type="submit">
                 <Checkmark />
               </Button>
             </ButtonGroup>
           </Flex>
         </Form>
       </Flex>
-      {isNonNil(roomStatus) && <MemberList members={roomStatus.members} />}
     </Flex>
   );
 };
@@ -665,6 +681,7 @@ const fsOrigin = ARCADE_FS_ORIGIN;
 
 const Home: FC = () => {
   const [videoURL, setVideoURL] = useState({name: '', url: ''});
+  const [videoElem, setVideoElem] = useState<HTMLVideoElement | null>(null);
 
   const loadVideo = useDebounceCallback(
     useCallback(
@@ -691,7 +708,12 @@ const Home: FC = () => {
     <Box size={BoxSize.S6} center padded>
       <Flex dir={FlexDir.Col} gap="16px">
         {videoURL.url.length > 0 && (
-          <Video name={videoURL.name} url={videoURL.url} />
+          <Video
+            elem={videoElem}
+            setElem={setVideoElem}
+            name={videoURL.name}
+            url={videoURL.url}
+          />
         )}
         <StatusBar load={load} />
         <Search load={load} />
