@@ -9,6 +9,7 @@ import (
 	"xorkevin.dev/governor"
 	"xorkevin.dev/governor/util/kjson"
 	"xorkevin.dev/governor/util/ktime"
+	"xorkevin.dev/governor/util/uid"
 	"xorkevin.dev/kerrors"
 )
 
@@ -23,14 +24,14 @@ type (
 		Value   json.RawMessage `json:"v"`
 	}
 
-	reqMsgBytes struct {
+	ReqMsgBytes struct {
 		ID      string          `json:"id"`
 		Channel string          `json:"ch"`
 		Userid  string          `json:"uid"`
 		Value   json.RawMessage `json:"v"`
 	}
 
-	resMsgBytes struct {
+	ResMsgBytes struct {
 		ID      string          `json:"id"`
 		Channel string          `json:"ch"`
 		Value   json.RawMessage `json:"v"`
@@ -60,6 +61,13 @@ func (s *router) ws(c *governor.Context) {
 		return
 	}
 	defer conn.Close(int(websocket.StatusInternalError), "Internal error")
+
+	connUid, err := uid.New()
+	if err != nil {
+		conn.CloseError(governor.ErrWS(nil, int(websocket.StatusInternalError), "Failed to generate connection uid"))
+		return
+	}
+	connid := connUid.Base64()
 
 	ctx, cancel := context.WithCancel(c.Ctx())
 	defer cancel()
@@ -93,6 +101,19 @@ func (s *router) ws(c *governor.Context) {
 			if err := s.handleCtlMsg(ctx, conn, *m); err != nil {
 				conn.CloseError(err)
 				return
+			}
+		} else {
+			msg := ReqMsgBytes{
+				ID:      m.ID,
+				Channel: m.Channel,
+				Userid:  connid,
+				Value:   m.Value,
+			}
+			for _, h := range s.s.handlers[m.Channel] {
+				if err := h.Handle(ctx, conn, msg); err != nil {
+					conn.CloseError(err)
+					return
+				}
 			}
 		}
 
@@ -150,7 +171,7 @@ func (s *router) handleCtlMsg(ctx context.Context, conn *governor.Websocket, m c
 		if err != nil {
 			return governor.ErrWS(err, int(websocket.StatusInternalError), "Failed to encode ping res")
 		}
-		b, err := kjson.Marshal(resMsgBytes{
+		b, err := kjson.Marshal(ResMsgBytes{
 			ID:      m.ID,
 			Channel: m.Channel,
 			Value:   p,
@@ -159,7 +180,7 @@ func (s *router) handleCtlMsg(ctx context.Context, conn *governor.Websocket, m c
 			return governor.ErrWS(err, int(websocket.StatusInternalError), "Failed to encode ping res")
 		}
 		if err := conn.Write(ctx, true, b); err != nil {
-			return governor.ErrWS(err, int(websocket.StatusProtocolError), "Failed to close ws connection")
+			return governor.ErrWS(err, int(websocket.StatusProtocolError), "Failed to write to ws connection")
 		}
 	}
 	return nil

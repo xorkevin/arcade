@@ -8,9 +8,18 @@ import (
 )
 
 type (
+	WSWriter interface {
+		Write(ctx context.Context, txt bool, b []byte) error
+	}
+
+	Handler interface {
+		Handle(ctx context.Context, w WSWriter, msg ReqMsgBytes) error
+	}
+
 	Service struct {
-		scopens string
-		log     *klog.LevelLogger
+		scopens  string
+		log      *klog.LevelLogger
+		handlers map[string][]Handler
 	}
 
 	router struct {
@@ -20,7 +29,9 @@ type (
 
 // New creates a new [Service]
 func New() *Service {
-	return &Service{}
+	return &Service{
+		handlers: map[string][]Handler{},
+	}
 }
 
 func (s *Service) Register(r governor.ConfigRegistrar) {
@@ -55,4 +66,8 @@ func (s *Service) Setup(ctx context.Context, req governor.ReqSetup) error {
 
 func (s *Service) Health(ctx context.Context) error {
 	return nil
+}
+
+func (s *Service) Handle(ch string, h Handler) {
+	s.handlers[ch] = append(s.handlers[ch], h)
 }

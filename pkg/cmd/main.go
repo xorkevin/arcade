@@ -1,6 +1,7 @@
 package main
 
 import (
+	"xorkevin.dev/arcade/pkg/room"
 	"xorkevin.dev/arcade/pkg/ws"
 	"xorkevin.dev/governor"
 )
@@ -21,7 +22,11 @@ func main() {
 	}
 
 	g := governor.New(opts, nil)
-	g.Register("ws", "/ws", ws.New())
+	wsService := ws.New()
+	g.Register("ws", "/ws", wsService)
+	roomService := room.New()
+	g.Register("room", "/null/room", roomService)
+	wsService.Handle("arcade.room", roomService)
 
 	cmd := governor.NewCmd(opts, nil, g, nil)
 	cmd.Execute()

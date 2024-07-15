@@ -72,10 +72,7 @@ const WSStatus = () => {
         },
       }),
     );
-    lastPing.current = {
-      id,
-      at: performance.now(),
-    };
+    lastPing.current = {id, at: performance.now()};
   }, [ws, lastPing]);
 
   useEffect(() => {
@@ -138,8 +135,9 @@ const WSStatus = () => {
         ) {
           return;
         }
-        const ping = Math.ceil(
-          performance.now() - lastPing.current.at - data.v.d,
+        const ping = Math.max(
+          Math.ceil(performance.now() - lastPing.current.at - data.v.d),
+          1,
         );
         setWSPing(ping);
         pingRef.current = ping;

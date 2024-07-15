@@ -267,11 +267,10 @@ const Search: FC<SearchProps> = ({load}) => {
     250,
   );
 
-  const submitArgs = useRef(form.state.search);
-  submitArgs.current = form.state.search;
+  const formState = form.state;
   const handleSubmit = useCallback(() => {
-    search(undefined, submitArgs.current);
-  }, [search, submitArgs]);
+    search(undefined, formState.search);
+  }, [search, formState]);
 
   const formUpdate = form.update;
   const formUpdateSearch = useCallback(
@@ -417,6 +416,7 @@ const Checkmark = () => (
 type MemberStatus = {
   name: string;
   ping: number | undefined;
+  at: number;
 };
 
 type MemberListProps = {
@@ -447,6 +447,7 @@ const MemberList: FC<MemberListProps> = ({members}) => {
 type RoomStatus = {
   members: Record<string, MemberStatus>;
   video: string | undefined;
+  at: number;
 };
 
 const nameInitState = () => ({name: crypto.randomUUID() as string});
@@ -483,7 +484,7 @@ const StatusBar: FC<StatusBarProps> = ({load}) => {
 
   const form = useForm(nameInitState);
 
-  const [name, setName] = useState(form.state.name);
+  const nameRef = useRef(form.state.name);
   const lastStatus = useRef<{id: string; at: number} | undefined>(undefined);
   const sendPing = useCallback(() => {
     if (!ws.isOpen() || isNil(room)) {
@@ -496,13 +497,13 @@ const StatusBar: FC<StatusBarProps> = ({load}) => {
         ch: 'arcade.room',
         v: {
           room,
-          name,
+          name: nameRef.current,
           ping: pingRef.current,
         },
       }),
     );
     lastStatus.current = {id, at: performance.now()};
-  }, [ws, lastStatus, room, name, pingRef]);
+  }, [ws, lastStatus, room, nameRef, pingRef]);
   useEffect(() => {
     setRoomStatus(undefined);
     if (isNil(room)) {
@@ -548,10 +549,8 @@ const StatusBar: FC<StatusBarProps> = ({load}) => {
       'message',
       (ev: MessageEvent<string>) => {
         const data = parseJSON(ev.data);
-        if (!isObject(data)) {
-          return;
-        }
         if (
+          !isObject(data) ||
           !('id' in data) ||
           !('ch' in data) ||
           !('v' in data) ||
@@ -566,16 +565,22 @@ const StatusBar: FC<StatusBarProps> = ({load}) => {
               !isObject(v) ||
               !('name' in v) ||
               typeof v.name !== 'string' ||
-              ('ping' in v && typeof v.ping !== 'number'),
+              ('ping' in v && typeof v.ping !== 'number') ||
+              !('at' in v) ||
+              typeof v.at !== 'number',
           ) ||
-          ('video' in data.v && typeof data.v !== 'string')
+          ('video' in data.v && typeof data.v.video !== 'string') ||
+          !('at' in data.v) ||
+          typeof data.v.at !== 'number'
         ) {
           return;
         }
         setRoomStatus({
           members: data.v.members as Record<string, MemberStatus>,
           video: (data.v as unknown as {video: string | undefined}).video,
+          at: data.v.at,
         });
+        lastStatus.current = undefined;
       },
       {signal: controller.signal},
     );
@@ -585,7 +590,20 @@ const StatusBar: FC<StatusBarProps> = ({load}) => {
       if (isSignalAborted(controller.signal)) {
         return;
       }
+
+      lastStatus.current = undefined;
+      if (isNonNil(timer)) {
+        clearInterval(timer);
+        timer = undefined;
+      }
       sendPing();
+      timer = setInterval(() => {
+        if (isNonNil(lastStatus.current)) {
+          setRoomStatus(undefined);
+          lastStatus.current = undefined;
+        }
+        sendPing();
+      }, 5000);
     })();
 
     return () => {
@@ -596,9 +614,20 @@ const StatusBar: FC<StatusBarProps> = ({load}) => {
     };
   }, [ws, room, setRoomStatus, lastStatus, sendPing, load]);
 
+  const setName = useDebounceCallback(
+    useCallback(
+      (_signal: AbortSignal, name: string) => {
+        nameRef.current = name;
+        sendPing();
+      },
+      [nameRef, sendPing],
+    ),
+    250,
+  );
+
   const formState = form.state;
   const handleSubmit = useCallback(() => {
-    setName(formState.name);
+    setName(undefined, formState.name);
   }, [setName, formState]);
 
   return (
