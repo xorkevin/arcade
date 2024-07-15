@@ -72,8 +72,12 @@ func (s *router) ws(c *governor.Context) {
 	ctx, cancel := context.WithCancel(c.Ctx())
 	defer cancel()
 
+	counterEven := 0
+	counterOdd := 0
+	last := time.Now().Unix()
+
 	for {
-		isText, b, err := conn.Read(c.Ctx())
+		isText, b, err := conn.Read(ctx)
 		if err != nil {
 			conn.CloseError(err)
 			return
@@ -117,8 +121,41 @@ func (s *router) ws(c *governor.Context) {
 			}
 		}
 
-		if err := ktime.After(ctx, 64*time.Millisecond); err != nil {
-			return
+		now := time.Now()
+		nowSec := now.Unix()
+		isEven := nowSec%2 == 0
+		if nowSec > last {
+			if last+1 == nowSec {
+				if isEven {
+					counterEven = 0
+				} else {
+					counterOdd = 0
+				}
+			} else {
+				counterEven = 0
+				counterOdd = 0
+			}
+			last = nowSec
+		}
+
+		var cur int
+		var prev int
+		if isEven {
+			counterEven += 1
+			cur = counterEven
+			prev = counterOdd
+		} else {
+			counterOdd += 1
+			cur = counterOdd
+			prev = counterEven
+		}
+
+		fracCur := float64(now.Nanosecond()/int(time.Millisecond)) / 1000
+		count := fracCur*float64(cur) + (1-fracCur)*float64(prev)
+		if count > 16 {
+			if err := ktime.After(ctx, 64*time.Millisecond); err != nil {
+				return
+			}
 		}
 	}
 }
