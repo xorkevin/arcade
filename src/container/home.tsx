@@ -1,5 +1,6 @@
 import {
   type FC,
+  type MutableRefObject,
   useCallback,
   useContext,
   useEffect,
@@ -321,12 +322,13 @@ const Video: FC<VideoProps> = ({elem, setElem, name, url}) => {
     if (isNil(elem)) {
       return;
     }
+
     const controller = new AbortController();
     elem.addEventListener(
       'error',
       () => {
         console.error('Video resource error', {
-          cause: elem?.error,
+          cause: elem.error,
         });
       },
       {signal: controller.signal},
@@ -345,42 +347,6 @@ const Video: FC<VideoProps> = ({elem, setElem, name, url}) => {
       },
       {signal: controller.signal},
     );
-
-    elem.addEventListener(
-      'pause',
-      () => {
-        console.info('Pause video');
-      },
-      {signal: controller.signal},
-    );
-    elem.addEventListener(
-      'play',
-      () => {
-        console.info('Play video');
-      },
-      {signal: controller.signal},
-    );
-    elem.addEventListener(
-      'seeking',
-      () => {
-        console.info('Seeking video', {time: elem.currentTime});
-      },
-      {signal: controller.signal},
-    );
-    elem.addEventListener(
-      'canplaythrough',
-      () => {
-        console.info('Can playthrough video');
-      },
-      {signal: controller.signal},
-    );
-    elem.addEventListener(
-      'waiting',
-      () => {
-        console.info('Waiting video');
-      },
-      {signal: controller.signal},
-    );
     return () => {
       controller.abort();
     };
@@ -393,19 +359,24 @@ const Video: FC<VideoProps> = ({elem, setElem, name, url}) => {
     elem.currentTime = elem.duration / 2;
   }, [elem]);
 
+  const pause = useCallback(() => {
+    if (isNil(elem)) {
+      return;
+    }
+    elem.pause();
+  }, [elem]);
+
   return (
     <Flex dir={FlexDir.Col} gap="8px">
-      <video
-        ref={setElem}
-        src={url.length > 0 ? url : undefined}
-        controls={url.length > 0}
-        muted
-      />
+      <video ref={setElem} src={url} controls={true} muted />
       <Flex alignItems={FlexAlignItems.Start} gap="8px">
         <code>{name}</code>
         <ButtonGroup gap>
           <Button variant={ButtonVariant.Subtle} onClick={seekHalf}>
             Seek 50%
+          </Button>
+          <Button variant={ButtonVariant.Subtle} onClick={pause}>
+            Pause
           </Button>
         </ButtonGroup>
       </Flex>
@@ -460,19 +431,81 @@ const MemberList: FC<MemberListProps> = ({members}) => {
   );
 };
 
+const nameInitState = () => ({name: 'Anonymous'});
+
+type RoomControlsProps = {
+  sendPing: () => void;
+  nameRef: MutableRefObject<string>;
+};
+
+const RoomControls: FC<RoomControlsProps> = ({nameRef, sendPing}) => {
+  const {navigate} = useRoute();
+
+  const createNewRoom = useCallback(() => {
+    const search = new URLSearchParams({
+      room: crypto.randomUUID(),
+    }).toString();
+    navigate({search}, {replace: true});
+  }, [navigate]);
+
+  const form = useForm(nameInitState);
+
+  const setName = useDebounceCallback(
+    useCallback(
+      (_signal: AbortSignal, name: string) => {
+        nameRef.current = name;
+        sendPing();
+      },
+      [nameRef, sendPing],
+    ),
+    250,
+  );
+
+  const formState = form.state;
+  const handleSubmit = useCallback(() => {
+    setName(undefined, formState.name);
+  }, [setName, formState]);
+
+  return (
+    <Flex alignItems={FlexAlignItems.Start} gap="8px">
+      <ButtonGroup gap>
+        <Button variant={ButtonVariant.Subtle} onClick={createNewRoom}>
+          New Room
+        </Button>
+      </ButtonGroup>
+      <Form form={form} onSubmit={handleSubmit}>
+        <Flex alignItems={FlexAlignItems.Start} gap="8px">
+          <Flex gap="8px">
+            <Field>
+              <Flex>
+                <Label>Username</Label>
+                <Input name="name" />
+              </Flex>
+            </Field>
+          </Flex>
+          <ButtonGroup gap>
+            <Button variant={ButtonVariant.Subtle} type="submit">
+              <Checkmark />
+            </Button>
+          </ButtonGroup>
+        </Flex>
+      </Form>
+    </Flex>
+  );
+};
+
 type RoomStatus = {
   members: Record<string, MemberStatus>;
   video: string | undefined;
   at: number;
 };
 
-const nameInitState = () => ({name: crypto.randomUUID() as string});
-
 type StatusBarProps = {
+  videoElem: HTMLVideoElement | null;
   load: (v: string) => void;
 };
 
-const StatusBar: FC<StatusBarProps> = ({load}) => {
+const StatusBar: FC<StatusBarProps> = ({videoElem}) => {
   const {ws, pingRef} = useContext(WSContext);
 
   const router = useRouter();
@@ -485,22 +518,11 @@ const StatusBar: FC<StatusBarProps> = ({load}) => {
     return v;
   }, [routerURL]);
 
-  const {navigate} = useRoute();
-
-  const createNewRoom = useCallback(() => {
-    const search = new URLSearchParams({
-      room: crypto.randomUUID(),
-    }).toString();
-    navigate({search}, {replace: true});
-  }, [navigate]);
-
   const [roomStatus, setRoomStatus] = useState<RoomStatus | undefined>(
     undefined,
   );
 
-  const form = useForm(nameInitState);
-
-  const nameRef = useRef(form.state.name);
+  const nameRef = useRef('Anonymous');
   const lastStatus = useRef<{id: string; at: number} | undefined>(undefined);
   const sendPing = useCallback(() => {
     if (!ws.isOpen() || isNil(room)) {
@@ -603,7 +625,7 @@ const StatusBar: FC<StatusBarProps> = ({load}) => {
 
     void (async () => {
       await sleep(250, {signal: controller.signal});
-      if (isSignalAborted(controller.signal)) {
+      if (isSignalAborted(controller.signal) || !ws.isOpen()) {
         return;
       }
 
@@ -628,51 +650,58 @@ const StatusBar: FC<StatusBarProps> = ({load}) => {
         clearInterval(timer);
       }
     };
-  }, [ws, room, setRoomStatus, lastStatus, sendPing, load]);
+  }, [ws, room, setRoomStatus, lastStatus, sendPing]);
 
-  const setName = useDebounceCallback(
-    useCallback(
-      (_signal: AbortSignal, name: string) => {
-        nameRef.current = name;
-        sendPing();
+  useEffect(() => {
+    if (isNil(videoElem)) {
+      return;
+    }
+
+    const controller = new AbortController();
+    videoElem.addEventListener(
+      'pause',
+      () => {
+        console.info('Pause video');
       },
-      [nameRef, sendPing],
-    ),
-    250,
-  );
-
-  const formState = form.state;
-  const handleSubmit = useCallback(() => {
-    setName(undefined, formState.name);
-  }, [setName, formState]);
+      {signal: controller.signal},
+    );
+    videoElem.addEventListener(
+      'play',
+      () => {
+        console.info('Play video');
+      },
+      {signal: controller.signal},
+    );
+    videoElem.addEventListener(
+      'seeking',
+      () => {
+        console.info('Seeking video', {time: videoElem.currentTime});
+      },
+      {signal: controller.signal},
+    );
+    videoElem.addEventListener(
+      'canplaythrough',
+      () => {
+        console.info('Can playthrough video');
+      },
+      {signal: controller.signal},
+    );
+    videoElem.addEventListener(
+      'waiting',
+      () => {
+        console.info('Waiting video');
+      },
+      {signal: controller.signal},
+    );
+    return () => {
+      controller.abort();
+    };
+  }, [ws, videoElem]);
 
   return (
     <Flex dir={FlexDir.Col} gap="8px">
       {isNonNil(roomStatus) && <MemberList members={roomStatus.members} />}
-      <Flex alignItems={FlexAlignItems.Start} gap="8px">
-        <ButtonGroup gap>
-          <Button variant={ButtonVariant.Subtle} onClick={createNewRoom}>
-            New Room
-          </Button>
-        </ButtonGroup>
-        <Form form={form} onSubmit={handleSubmit}>
-          <Flex alignItems={FlexAlignItems.Start} gap="8px">
-            <Flex gap="8px">
-              <Field>
-                <Flex>
-                  <Label>Username</Label>
-                  <Input name="name" />
-                </Flex>
-              </Field>
-            </Flex>
-            <ButtonGroup gap>
-              <Button variant={ButtonVariant.Subtle} type="submit">
-                <Checkmark />
-              </Button>
-            </ButtonGroup>
-          </Flex>
-        </Form>
-      </Flex>
+      <RoomControls sendPing={sendPing} nameRef={nameRef} />
     </Flex>
   );
 };
@@ -715,7 +744,7 @@ const Home: FC = () => {
             url={videoURL.url}
           />
         )}
-        <StatusBar load={load} />
+        <StatusBar videoElem={videoElem} load={load} />
         <Search load={load} />
       </Flex>
     </Box>
