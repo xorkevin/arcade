@@ -403,6 +403,8 @@ const Checkmark = () => (
 type MemberStatus = {
   name: string;
   ping: number | undefined;
+  pos: number;
+  play: boolean;
   at: number;
 };
 
@@ -522,8 +524,9 @@ const StatusBar: FC<StatusBarProps> = ({videoElem}) => {
     undefined,
   );
 
+  const memberStatusRef = useRef({pos: 0, play: false});
   const nameRef = useRef('Anonymous');
-  const lastStatus = useRef<{id: string; at: number} | undefined>(undefined);
+  const lastPing = useRef<{id: string; at: number} | undefined>(undefined);
   const sendPing = useCallback(() => {
     if (!ws.isOpen() || isNil(room)) {
       return;
@@ -532,16 +535,18 @@ const StatusBar: FC<StatusBarProps> = ({videoElem}) => {
     ws.send(
       JSON.stringify({
         id,
-        ch: 'arcade.room',
+        ch: 'arcade.room.ping',
         v: {
           room,
           name: nameRef.current,
           ping: pingRef.current,
+          pos: memberStatusRef.current.pos,
+          play: memberStatusRef.current.play,
         },
       }),
     );
-    lastStatus.current = {id, at: performance.now()};
-  }, [ws, lastStatus, room, nameRef, pingRef]);
+    lastPing.current = {id, at: performance.now()};
+  }, [ws, lastPing, room, memberStatusRef, nameRef, pingRef]);
   useEffect(() => {
     setRoomStatus(undefined);
     if (isNil(room)) {
@@ -554,16 +559,16 @@ const StatusBar: FC<StatusBarProps> = ({videoElem}) => {
     ws.addEventListener(
       'open',
       () => {
-        lastStatus.current = undefined;
+        lastPing.current = undefined;
         if (isNonNil(timer)) {
           clearInterval(timer);
           timer = undefined;
         }
         sendPing();
         timer = setInterval(() => {
-          if (isNonNil(lastStatus.current)) {
+          if (isNonNil(lastPing.current)) {
             setRoomStatus(undefined);
-            lastStatus.current = undefined;
+            lastPing.current = undefined;
           }
           sendPing();
         }, 5000);
@@ -574,7 +579,7 @@ const StatusBar: FC<StatusBarProps> = ({videoElem}) => {
       'close',
       () => {
         setRoomStatus(undefined);
-        lastStatus.current = undefined;
+        lastPing.current = undefined;
         if (isNonNil(timer)) {
           clearInterval(timer);
           timer = undefined;
@@ -592,9 +597,9 @@ const StatusBar: FC<StatusBarProps> = ({videoElem}) => {
           !('id' in data) ||
           !('ch' in data) ||
           !('v' in data) ||
-          isNil(lastStatus.current) ||
-          data.id !== lastStatus.current.id ||
-          data.ch !== 'arcade.room' ||
+          isNil(lastPing.current) ||
+          data.id !== lastPing.current.id ||
+          data.ch !== 'arcade.room.ping' ||
           !isObject(data.v) ||
           !('members' in data.v) ||
           !isObject(data.v.members) ||
@@ -604,6 +609,10 @@ const StatusBar: FC<StatusBarProps> = ({videoElem}) => {
               !('name' in v) ||
               typeof v.name !== 'string' ||
               ('ping' in v && typeof v.ping !== 'number') ||
+              !('pos' in v) ||
+              typeof v.pos !== 'number' ||
+              !('play' in v) ||
+              typeof v.play !== 'boolean' ||
               !('at' in v) ||
               typeof v.at !== 'number',
           ) ||
@@ -618,7 +627,7 @@ const StatusBar: FC<StatusBarProps> = ({videoElem}) => {
           video: (data.v as unknown as {video: string | undefined}).video,
           at: data.v.at,
         });
-        lastStatus.current = undefined;
+        lastPing.current = undefined;
       },
       {signal: controller.signal},
     );
@@ -629,16 +638,16 @@ const StatusBar: FC<StatusBarProps> = ({videoElem}) => {
         return;
       }
 
-      lastStatus.current = undefined;
+      lastPing.current = undefined;
       if (isNonNil(timer)) {
         clearInterval(timer);
         timer = undefined;
       }
       sendPing();
       timer = setInterval(() => {
-        if (isNonNil(lastStatus.current)) {
+        if (isNonNil(lastPing.current)) {
           setRoomStatus(undefined);
-          lastStatus.current = undefined;
+          lastPing.current = undefined;
         }
         sendPing();
       }, 5000);
@@ -650,8 +659,27 @@ const StatusBar: FC<StatusBarProps> = ({videoElem}) => {
         clearInterval(timer);
       }
     };
-  }, [ws, room, setRoomStatus, lastStatus, sendPing]);
+  }, [ws, room, setRoomStatus, lastPing, sendPing]);
 
+  const sendCtl = useCallback(
+    (video: string, pos: number, play: boolean) => {
+      if (!ws.isOpen() || isNil(room)) {
+        return;
+      }
+      ws.send(
+        JSON.stringify({
+          ch: 'arcade.room.ctl',
+          v: {
+            room,
+            video,
+            pos,
+            play,
+          },
+        }),
+      );
+    },
+    [ws, room],
+  );
   useEffect(() => {
     if (isNil(videoElem)) {
       return;
@@ -659,16 +687,50 @@ const StatusBar: FC<StatusBarProps> = ({videoElem}) => {
 
     const controller = new AbortController();
     videoElem.addEventListener(
+      'loadstart',
+      () => {
+        console.info('Load video', {
+          src: videoElem.src,
+          time: videoElem.currentTime,
+          play: !videoElem.paused,
+        });
+        sendCtl(
+          videoElem.src,
+          Math.floor(videoElem.currentTime * 1000),
+          !videoElem.paused,
+        );
+      },
+      {signal: controller.signal},
+    );
+    videoElem.addEventListener(
       'pause',
       () => {
-        console.info('Pause video');
+        console.info('Pause video', {
+          src: videoElem.src,
+          time: videoElem.currentTime,
+          play: !videoElem.paused,
+        });
+        sendCtl(
+          videoElem.src,
+          Math.floor(videoElem.currentTime * 1000),
+          !videoElem.paused,
+        );
       },
       {signal: controller.signal},
     );
     videoElem.addEventListener(
       'play',
       () => {
-        console.info('Play video');
+        console.info('Play video', {
+          src: videoElem.src,
+          time: videoElem.currentTime,
+          play: !videoElem.paused,
+        });
+        sendCtl(
+          videoElem.src,
+          Math.floor(videoElem.currentTime * 1000),
+          !videoElem.paused,
+        );
       },
       {signal: controller.signal},
     );
@@ -696,7 +758,7 @@ const StatusBar: FC<StatusBarProps> = ({videoElem}) => {
     return () => {
       controller.abort();
     };
-  }, [ws, videoElem]);
+  }, [videoElem, sendCtl]);
 
   return (
     <Flex dir={FlexDir.Col} gap="8px">

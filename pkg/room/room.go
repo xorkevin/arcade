@@ -2,6 +2,7 @@ package room
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -31,6 +32,8 @@ type (
 	memberState struct {
 		Name string `json:"name"`
 		Ping int64  `json:"ping,omitempty"`
+		Pos  int64  `json:"pos"`
+		Play bool   `json:"play"`
 		At   int64  `json:"at"`
 	}
 
@@ -38,6 +41,15 @@ type (
 		Room string `json:"room"`
 		Name string `json:"name"`
 		Ping int64  `json:"ping"`
+		Pos  int64  `json:"pos"`
+		Play bool   `json:"play"`
+	}
+
+	reqCtl struct {
+		Room  string `json:"room"`
+		Video string `json:"video"`
+		Pos   int64  `json:"pos"`
+		Play  bool   `json:"play"`
 	}
 )
 
@@ -114,11 +126,19 @@ func (s *Service) gcRooms() {
 
 func (s *Service) Handle(ctx context.Context, w ws.WSWriter, m ws.ReqMsgBytes) error {
 	start := time.Now().UnixMilli()
-
-	if m.Channel != "arcade.room" {
-		return governor.ErrWS(nil, int(websocket.StatusInvalidFramePayloadData), "Expecting channel arcade.room")
+	switch m.Channel {
+	case "arcade.room.ping":
+		if err := s.handlePingRoom(ctx, w, m, start); err != nil {
+			return err
+		}
+	case "arcade.room.ctl":
+	default:
+		return governor.ErrWS(nil, int(websocket.StatusInvalidFramePayloadData), fmt.Sprintf("Unexpected channel %s", m.Channel))
 	}
+	return nil
+}
 
+func (s *Service) handlePingRoom(ctx context.Context, w ws.WSWriter, m ws.ReqMsgBytes, start int64) error {
 	var req reqPing
 	if err := kjson.Unmarshal(m.Value, &req); err != nil {
 		return governor.ErrWS(err, int(websocket.StatusInvalidFramePayloadData), "Invalid req body")
@@ -138,7 +158,7 @@ func (s *Service) Handle(ctx context.Context, w ws.WSWriter, m ws.ReqMsgBytes) e
 		req.Ping = -1
 	}
 
-	b, err := s.pingRoom(req.Room, m.Userid, req.Name, req.Ping, start)
+	b, err := s.pingRoom(req.Room, m.Userid, req, start)
 	if err != nil {
 		return err
 	}
@@ -156,7 +176,7 @@ func (s *Service) Handle(ctx context.Context, w ws.WSWriter, m ws.ReqMsgBytes) e
 	return nil
 }
 
-func (s *Service) pingRoom(room string, id string, name string, ping, at int64) ([]byte, error) {
+func (s *Service) pingRoom(room string, id string, req reqPing, at int64) ([]byte, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -174,8 +194,10 @@ func (s *Service) pingRoom(room string, id string, name string, ping, at int64) 
 		r.Members[id] = m
 	}
 
-	m.Name = name
-	m.Ping = ping
+	m.Name = req.Name
+	m.Ping = req.Ping
+	m.Pos = req.Pos
+	m.Play = req.Play
 	m.At = at
 
 	now := time.Now().UnixMilli()

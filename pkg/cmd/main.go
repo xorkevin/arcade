@@ -26,7 +26,8 @@ func main() {
 	g.Register("ws", "/ws", wsService)
 	roomService := room.New()
 	g.Register("room", "/null/room", roomService)
-	wsService.Handle("arcade.room", roomService)
+	wsService.Handle("arcade.room.ping", roomService)
+	wsService.Handle("arcade.room.ctl", roomService)
 
 	cmd := governor.NewCmd(opts, nil, g, nil)
 	cmd.Execute()

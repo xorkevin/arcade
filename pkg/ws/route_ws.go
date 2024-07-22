@@ -32,7 +32,7 @@ type (
 	}
 
 	ResMsgBytes struct {
-		ID      string          `json:"id"`
+		ID      string          `json:"id,omitempty"`
 		Channel string          `json:"ch"`
 		Value   json.RawMessage `json:"v"`
 	}
