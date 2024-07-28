@@ -431,6 +431,7 @@ type RoomStatus = {
   members: Record<string, MemberStatus>;
   at: number;
   localAt: number;
+  ctr: number;
 };
 
 const approxPos = (
@@ -460,27 +461,18 @@ const curTimeInitState = () => performance.now();
 type MemberListProps = {
   roomStatus: RoomStatus;
   pingRef: {current: number | undefined};
-  videoElem: HTMLVideoElement | null;
 };
 
-const MemberList: FC<MemberListProps> = ({roomStatus, pingRef, videoElem}) => {
+const MemberList: FC<MemberListProps> = ({roomStatus, pingRef}) => {
   const [curTime, setCurTime] = useState(curTimeInitState);
   useEffect(() => {
-    if (isNil(videoElem)) {
-      return;
-    }
-    const controller = new AbortController();
-    videoElem.addEventListener(
-      'timeupdate',
-      () => {
-        setCurTime(performance.now());
-      },
-      {signal: controller.signal},
-    );
+    const timer = setInterval(() => {
+      setCurTime(performance.now());
+    }, 250);
     return () => {
-      controller.abort();
+      clearInterval(timer);
     };
-  }, [videoElem, setCurTime]);
+  }, [setCurTime]);
   return (
     <ul className={modClassNames(styles, 'memberlist')}>
       {Object.entries(roomStatus.members).map(([id, member]) => (
@@ -577,6 +569,22 @@ const RoomControls: FC<RoomControlsProps> = ({nameRef, sendPing}) => {
   );
 };
 
+const WRAPPING_THRESHOLD = 2 ** 31;
+
+const abs = (a: number, b: number) => {
+  if (a > b) {
+    return a - b;
+  }
+  return b - a;
+};
+
+const wrappingLeq = (a: number, b: number) => {
+  if (abs(a, b) < WRAPPING_THRESHOLD) {
+    return a <= b;
+  }
+  return a > b;
+};
+
 type StatusBarProps = {
   room: string | undefined;
   videoElem: HTMLVideoElement | null;
@@ -635,6 +643,7 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem}) => {
         timer = setInterval(() => {
           if (isNonNil(lastPing.current)) {
             setRoomStatus(undefined);
+            pingRef.current = -1;
             lastPing.current = undefined;
           }
           sendPing();
@@ -646,6 +655,7 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem}) => {
       'close',
       () => {
         setRoomStatus(undefined);
+        pingRef.current = undefined;
         lastPing.current = undefined;
         if (isNonNil(timer)) {
           clearInterval(timer);
@@ -661,13 +671,12 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem}) => {
         const data = parseJSON(ev.data);
         if (
           !isObject(data) ||
-          !('id' in data) ||
           !('ch' in data) ||
           !('v' in data) ||
-          isNil(lastPing.current) ||
-          data.id !== lastPing.current.id ||
           data.ch !== 'arcade.room.ping' ||
           !isObject(data.v) ||
+          !('room' in data.v) ||
+          data.v.room !== room ||
           !('members' in data.v) ||
           !isObject(data.v.members) ||
           Object.values(data.v.members).some(
@@ -689,24 +698,41 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem}) => {
           typeof data.v.pos !== 'number' ||
           !('play' in data.v) ||
           typeof data.v.play !== 'boolean' ||
+          !('ctlat' in data.v) ||
+          typeof data.v.ctlat !== 'number' ||
           !('at' in data.v) ||
           typeof data.v.at !== 'number' ||
           !('d' in data.v) ||
-          typeof data.v.d !== 'number'
+          typeof data.v.d !== 'number' ||
+          !('ctr' in data.v) ||
+          typeof data.v.ctr !== 'number'
         ) {
           return;
         }
-        const ping = Math.max(
-          Math.ceil(performance.now() - lastPing.current.at - data.v.d),
-          1,
-        );
-        setRoomStatus({
+        if (
+          isNonNil(lastPing.current) &&
+          'id' in data &&
+          data.id === lastPing.current.id
+        ) {
+          const ping = Math.max(
+            Math.ceil(performance.now() - lastPing.current.at - data.v.d),
+            1,
+          );
+          pingRef.current = ping;
+          lastPing.current = undefined;
+        }
+        const next = {
           members: data.v.members as Record<string, MemberStatus>,
           at: data.v.at,
           localAt: performance.now(),
+          ctr: data.v.ctr,
+        };
+        setRoomStatus((state) => {
+          if (isNonNil(state) && wrappingLeq(next.ctr, state.ctr)) {
+            return state;
+          }
+          return next;
         });
-        pingRef.current = ping;
-        lastPing.current = undefined;
       },
       {signal: controller.signal},
     );
@@ -726,6 +752,7 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem}) => {
       timer = setInterval(() => {
         if (isNonNil(lastPing.current)) {
           setRoomStatus(undefined);
+          pingRef.current = -1;
           lastPing.current = undefined;
         }
         sendPing();
@@ -784,7 +811,6 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem}) => {
       'play',
       () => {
         console.info('Play video', {
-          src: videoElem.src,
           time: videoElem.currentTime,
           play: !videoElem.paused,
         });
@@ -831,11 +857,7 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem}) => {
   return (
     <Flex dir={FlexDir.Col} gap="8px">
       {isNonNil(roomStatus) && (
-        <MemberList
-          roomStatus={roomStatus}
-          pingRef={pingRef}
-          videoElem={videoElem}
-        />
+        <MemberList roomStatus={roomStatus} pingRef={pingRef} />
       )}
       <RoomControls sendPing={sendPing} nameRef={nameRef} />
     </Flex>

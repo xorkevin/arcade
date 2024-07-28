@@ -24,11 +24,14 @@ type (
 	}
 
 	roomState struct {
+		ID      string                  `json:"room"`
 		Members map[string]*memberState `json:"members"`
 		Video   string                  `json:"video"`
 		Pos     int64                   `json:"pos"`
 		Play    bool                    `json:"play"`
+		CtlAt   int64                   `json:"ctlat"`
 		At      int64                   `json:"at"`
+		Ctr     uint32                  `json:"ctr"`
 	}
 
 	memberState struct {
@@ -37,6 +40,7 @@ type (
 		Pos  int64  `json:"pos"`
 		Play bool   `json:"play"`
 		At   int64  `json:"at"`
+		w    ws.WSWriter
 	}
 
 	reqPing struct {
@@ -55,18 +59,22 @@ type (
 	}
 
 	resRoomState struct {
+		ID          string                  `json:"room"`
 		Members     map[string]*memberState `json:"members"`
 		Video       string                  `json:"video"`
 		Pos         int64                   `json:"pos"`
 		Play        bool                    `json:"play"`
+		CtlAt       int64                   `json:"ctlat"`
 		At          int64                   `json:"at"`
 		ResDuration int64                   `json:"d"`
+		Ctr         uint32                  `json:"ctr"`
 	}
 
 	resCtl struct {
 		Video string `json:"video"`
 		Pos   int64  `json:"pos"`
 		Play  bool   `json:"play"`
+		Ctr   uint32 `json:"ctr"`
 	}
 )
 
@@ -149,7 +157,7 @@ func (s *Service) Handle(ctx context.Context, w ws.WSWriter, m ws.ReqMsgBytes) e
 			return err
 		}
 	case "arcade.room.ctl":
-		if err := s.handleCtlRoom(m); err != nil {
+		if err := s.handleCtlRoom(ctx, m); err != nil {
 			return err
 		}
 	default:
@@ -178,7 +186,7 @@ func (s *Service) handlePingRoom(ctx context.Context, w ws.WSWriter, m ws.ReqMsg
 		req.Ping = -1
 	}
 
-	b, err := s.pingRoom(req.Room, m.Userid, req, start)
+	b, sinks, err := s.pingRoom(req.Room, m.Userid, w, req, start)
 	if err != nil {
 		return err
 	}
@@ -193,17 +201,25 @@ func (s *Service) handlePingRoom(ctx context.Context, w ws.WSWriter, m ws.ReqMsg
 	if err := w.Write(ctx, true, res); err != nil {
 		return governor.ErrWS(err, int(websocket.StatusProtocolError), "Failed to write to ws connection")
 	}
+	for _, i := range sinks {
+		if err := i.Write(ctx, true, res); err != nil {
+			s.log.Err(ctx, kerrors.WithMsg(err, "Failed to forward ping to ws connection"))
+		}
+	}
 	return nil
 }
 
-func (s *Service) pingRoom(room string, id string, req reqPing, at int64) ([]byte, error) {
+func (s *Service) pingRoom(room string, id string, w ws.WSWriter, req reqPing, at int64) ([]byte, []ws.WSWriter, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
 	r, ok := s.rooms[room]
 	if !ok {
 		r = &roomState{
+			ID:      room,
 			Members: map[string]*memberState{},
+			CtlAt:   at,
+			Ctr:     0,
 		}
 		s.rooms[room] = r
 	}
@@ -219,31 +235,39 @@ func (s *Service) pingRoom(room string, id string, req reqPing, at int64) ([]byt
 	m.Pos = req.Pos
 	m.Play = req.Play
 	m.At = at
+	m.w = w
 
+	sinks := make([]ws.WSWriter, 0, len(r.Members)-1)
 	now := time.Now().UnixMilli()
 	for k, v := range r.Members {
 		if v.At+7000 < now {
 			delete(r.Members, k)
+		} else if k != id {
+			sinks = append(sinks, v.w)
 		}
 	}
 
+	r.Ctr++
 	r.At = time.Now().UnixMilli()
 
 	b, err := kjson.Marshal(resRoomState{
+		ID:          r.ID,
 		Members:     r.Members,
 		Video:       r.Video,
 		Pos:         r.Pos,
 		Play:        r.Play,
+		CtlAt:       r.CtlAt,
 		At:          r.At,
 		ResDuration: r.At - at,
+		Ctr:         r.Ctr,
 	})
 	if err != nil {
-		return nil, kerrors.WithMsg(err, "Failed to marshal room state")
+		return nil, nil, kerrors.WithMsg(err, "Failed to marshal room state")
 	}
-	return b, nil
+	return b, sinks, nil
 }
 
-func (s *Service) handleCtlRoom(m ws.ReqMsgBytes) error {
+func (s *Service) handleCtlRoom(ctx context.Context, m ws.ReqMsgBytes) error {
 	var req reqCtl
 	if err := kjson.Unmarshal(m.Value, &req); err != nil {
 		return governor.ErrWS(err, int(websocket.StatusInvalidFramePayloadData), "Invalid req body")
@@ -262,11 +286,11 @@ func (s *Service) handleCtlRoom(m ws.ReqMsgBytes) error {
 		return governor.ErrWS(nil, int(websocket.StatusInvalidFramePayloadData), "Invalid pos")
 	}
 
-	b, err := s.ctlRoom(req.Room, m.Userid, req)
+	b, sinks, err := s.ctlRoom(req.Room, m.Userid, req)
 	if err != nil {
 		return err
 	}
-	_, err = kjson.Marshal(ws.ResMsgBytes{
+	res, err := kjson.Marshal(ws.ResMsgBytes{
 		ID:      m.ID,
 		Channel: m.Channel,
 		Value:   b,
@@ -274,42 +298,53 @@ func (s *Service) handleCtlRoom(m ws.ReqMsgBytes) error {
 	if err != nil {
 		return kerrors.WithMsg(err, "Failed to marshal room control message")
 	}
+	for _, i := range sinks {
+		if err := i.Write(ctx, true, res); err != nil {
+			s.log.Err(ctx, kerrors.WithMsg(err, "Failed to write to ws connection"))
+		}
+	}
 	return nil
 }
 
-func (s *Service) ctlRoom(room string, id string, req reqCtl) ([]byte, error) {
+func (s *Service) ctlRoom(room string, id string, req reqCtl) ([]byte, []ws.WSWriter, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
 	r, ok := s.rooms[room]
 	if !ok {
-		return nil, kerrors.WithMsg(nil, "Invalid room")
+		return nil, nil, kerrors.WithMsg(nil, "Invalid room")
 	}
 
 	if _, ok := r.Members[id]; !ok {
-		return nil, kerrors.WithMsg(nil, "Not member of room")
+		return nil, nil, kerrors.WithMsg(nil, "Not member of room")
 	}
 
 	r.Video = req.Video
 	r.Pos = req.Pos
 	r.Play = req.Play
 
+	sinks := make([]ws.WSWriter, 0, len(r.Members))
 	now := time.Now().UnixMilli()
 	for k, v := range r.Members {
 		if v.At+7000 < now {
 			delete(r.Members, k)
+		} else {
+			sinks = append(sinks, v.w)
 		}
 	}
 
-	r.At = time.Now().UnixMilli()
+	r.Ctr++
+	r.CtlAt = time.Now().UnixMilli()
+	r.At = r.CtlAt
 
 	b, err := kjson.Marshal(resCtl{
 		Video: r.Video,
 		Pos:   r.Pos,
 		Play:  r.Play,
+		Ctr:   r.Ctr,
 	})
 	if err != nil {
-		return nil, kerrors.WithMsg(err, "Failed to marshal room control message")
+		return nil, nil, kerrors.WithMsg(err, "Failed to marshal room control message")
 	}
-	return b, nil
+	return b, sinks, nil
 }
