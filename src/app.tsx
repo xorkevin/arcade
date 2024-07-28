@@ -54,7 +54,7 @@ const routes: Route[] = [
 ];
 
 const WSStatus = () => {
-  const {ws, pingRef} = useContext(WSContext);
+  const ws = useContext(WSContext);
   const [wsStatus, setWSStatus] = useState(false);
   const [wsPing, setWSPing] = useState<number | undefined>(undefined);
   const lastPing = useRef<{id: string; at: number} | undefined>(undefined);
@@ -94,7 +94,6 @@ const WSStatus = () => {
         timer = setInterval(() => {
           if (isNonNil(lastPing.current)) {
             setWSPing(-1);
-            pingRef.current = -1;
             lastPing.current = undefined;
           }
           sendPing();
@@ -107,7 +106,6 @@ const WSStatus = () => {
       () => {
         setWSStatus(false);
         setWSPing(undefined);
-        pingRef.current = undefined;
         lastPing.current = undefined;
         if (isNonNil(timer)) {
           clearInterval(timer);
@@ -140,7 +138,6 @@ const WSStatus = () => {
           1,
         );
         setWSPing(ping);
-        pingRef.current = ping;
         lastPing.current = undefined;
       },
       {signal: controller.signal},
@@ -160,7 +157,7 @@ const WSStatus = () => {
         clearInterval(timer);
       }
     };
-  }, [ws, setWSStatus, lastPing, sendPing, setWSPing, pingRef]);
+  }, [ws, setWSStatus, lastPing, sendPing, setWSPing]);
 
   return (
     <Flex alignItems={FlexAlignItems.Center} gap="8px">
@@ -196,10 +193,8 @@ const App: FC = () => {
     ]);
     return ws;
   }, []);
-  const pingRef = useRef<number | undefined>(undefined);
-  const wsctx = useMemo(() => ({ws, pingRef}), [ws, pingRef]);
   return (
-    <WSContext.Provider value={wsctx}>
+    <WSContext.Provider value={ws}>
       <div>
         <header className={NavClasses.Banner}>
           <Box

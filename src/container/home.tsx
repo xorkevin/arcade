@@ -310,14 +310,16 @@ const Search: FC<SearchProps> = ({load}) => {
   );
 };
 
+const fsOrigin = ARCADE_FS_ORIGIN;
+const fsPathPrefix = '/fs/';
+
 type VideoProps = {
   elem: HTMLVideoElement | null;
   setElem: (e: HTMLVideoElement) => void;
-  name: string;
   url: string;
 };
 
-const Video: FC<VideoProps> = ({elem, setElem, name, url}) => {
+const Video: FC<VideoProps> = ({elem, setElem, url}) => {
   useEffect(() => {
     if (isNil(elem)) {
       return;
@@ -366,6 +368,23 @@ const Video: FC<VideoProps> = ({elem, setElem, name, url}) => {
     elem.pause();
   }, [elem]);
 
+  const name = useMemo(() => {
+    const u = parseURL(url);
+    if (isNil(u)) {
+      return url;
+    }
+    if (u.origin === fsOrigin && u.pathname.startsWith(fsPathPrefix)) {
+      const name = u.pathname.slice(fsPathPrefix.length);
+      try {
+        return decodeURI(name);
+      } catch (err) {
+        // ignore invalid uri
+      }
+      return name;
+    }
+    return url;
+  }, [url]);
+
   return (
     <Flex dir={FlexDir.Col} gap="8px">
       <video ref={setElem} src={url} controls={true} muted />
@@ -408,14 +427,63 @@ type MemberStatus = {
   at: number;
 };
 
-type MemberListProps = {
+type RoomStatus = {
   members: Record<string, MemberStatus>;
+  at: number;
+  localAt: number;
 };
 
-const MemberList: FC<MemberListProps> = ({members}) => {
+const approxPos = (
+  play: boolean,
+  pos: number,
+  ping: number | undefined,
+  at: number,
+  serverAt: number,
+  localPing: number | undefined,
+  localAt: number,
+  curTime: number,
+): number => {
+  if (!play || isNil(ping) || isNil(localPing)) {
+    return pos;
+  }
+  if (ping < 0) {
+    ping = 5000;
+  }
+  if (localPing < 0) {
+    localPing = 5000;
+  }
+  return pos + ping + (serverAt - at) + localPing + (curTime - localAt);
+};
+
+const curTimeInitState = () => performance.now();
+
+type MemberListProps = {
+  roomStatus: RoomStatus;
+  pingRef: {current: number | undefined};
+  videoElem: HTMLVideoElement | null;
+};
+
+const MemberList: FC<MemberListProps> = ({roomStatus, pingRef, videoElem}) => {
+  const [curTime, setCurTime] = useState(curTimeInitState);
+  useEffect(() => {
+    if (isNil(videoElem)) {
+      return;
+    }
+    const controller = new AbortController();
+    videoElem.addEventListener(
+      'timeupdate',
+      () => {
+        setCurTime(performance.now());
+      },
+      {signal: controller.signal},
+    );
+    return () => {
+      controller.abort();
+    };
+  }, [videoElem, setCurTime]);
   return (
     <ul className={modClassNames(styles, 'memberlist')}>
-      {Object.entries(members).map(([id, member]) => (
+      {Object.entries(roomStatus.members).map(([id, member]) => (
         <li key={id}>
           {member.name} (
           <code>
@@ -426,7 +494,20 @@ const MemberList: FC<MemberListProps> = ({members}) => {
                 : String(member.ping)}
             ms
           </code>
-          )
+          ) @{' '}
+          {Math.floor(
+            approxPos(
+              member.play,
+              member.pos,
+              member.ping,
+              member.at,
+              roomStatus.at,
+              pingRef.current,
+              roomStatus.localAt,
+              curTime,
+            ) / 1000,
+          )}
+          s {member.play ? 'playing' : 'paused'}
         </li>
       ))}
     </ul>
@@ -496,29 +577,14 @@ const RoomControls: FC<RoomControlsProps> = ({nameRef, sendPing}) => {
   );
 };
 
-type RoomStatus = {
-  members: Record<string, MemberStatus>;
-  video: string | undefined;
-  at: number;
-};
-
 type StatusBarProps = {
+  room: string | undefined;
   videoElem: HTMLVideoElement | null;
   load: (v: string) => void;
 };
 
-const StatusBar: FC<StatusBarProps> = ({videoElem}) => {
-  const {ws, pingRef} = useContext(WSContext);
-
-  const router = useRouter();
-  const routerURL = router.url;
-  const room = useMemo(() => {
-    const v = routerURL.searchParams.get('room');
-    if (isNil(v) || v.length === 0) {
-      return;
-    }
-    return v;
-  }, [routerURL]);
+const StatusBar: FC<StatusBarProps> = ({room, videoElem}) => {
+  const ws = useContext(WSContext);
 
   const [roomStatus, setRoomStatus] = useState<RoomStatus | undefined>(
     undefined,
@@ -526,6 +592,7 @@ const StatusBar: FC<StatusBarProps> = ({videoElem}) => {
 
   const memberStatusRef = useRef({pos: 0, play: false});
   const nameRef = useRef('Anonymous');
+  const pingRef = useRef<number | undefined>(undefined);
   const lastPing = useRef<{id: string; at: number} | undefined>(undefined);
   const sendPing = useCallback(() => {
     if (!ws.isOpen() || isNil(room)) {
@@ -616,17 +683,29 @@ const StatusBar: FC<StatusBarProps> = ({videoElem}) => {
               !('at' in v) ||
               typeof v.at !== 'number',
           ) ||
-          ('video' in data.v && typeof data.v.video !== 'string') ||
+          !('video' in data.v) ||
+          typeof data.v.video !== 'string' ||
+          !('pos' in data.v) ||
+          typeof data.v.pos !== 'number' ||
+          !('play' in data.v) ||
+          typeof data.v.play !== 'boolean' ||
           !('at' in data.v) ||
-          typeof data.v.at !== 'number'
+          typeof data.v.at !== 'number' ||
+          !('d' in data.v) ||
+          typeof data.v.d !== 'number'
         ) {
           return;
         }
+        const ping = Math.max(
+          Math.ceil(performance.now() - lastPing.current.at - data.v.d),
+          1,
+        );
         setRoomStatus({
           members: data.v.members as Record<string, MemberStatus>,
-          video: (data.v as unknown as {video: string | undefined}).video,
           at: data.v.at,
+          localAt: performance.now(),
         });
+        pingRef.current = ping;
         lastPing.current = undefined;
       },
       {signal: controller.signal},
@@ -659,27 +738,19 @@ const StatusBar: FC<StatusBarProps> = ({videoElem}) => {
         clearInterval(timer);
       }
     };
-  }, [ws, room, setRoomStatus, lastPing, sendPing]);
+  }, [ws, room, setRoomStatus, lastPing, sendPing, pingRef]);
 
-  const sendCtl = useCallback(
-    (video: string, pos: number, play: boolean) => {
-      if (!ws.isOpen() || isNil(room)) {
-        return;
-      }
-      ws.send(
-        JSON.stringify({
-          ch: 'arcade.room.ctl',
-          v: {
-            room,
-            video,
-            pos,
-            play,
-          },
-        }),
-      );
-    },
-    [ws, room],
-  );
+  const updMemberStatus = useCallback(() => {
+    if (isNil(videoElem)) {
+      return;
+    }
+    memberStatusRef.current.pos = Math.floor(videoElem.currentTime * 1000);
+    memberStatusRef.current.play = !videoElem.paused;
+  }, [videoElem, memberStatusRef]);
+  const updAndPingMemberStatus = useCallback(() => {
+    updMemberStatus();
+    sendPing();
+  }, [updMemberStatus, sendPing]);
   useEffect(() => {
     if (isNil(videoElem)) {
       return;
@@ -687,18 +758,14 @@ const StatusBar: FC<StatusBarProps> = ({videoElem}) => {
 
     const controller = new AbortController();
     videoElem.addEventListener(
-      'loadstart',
+      'loadedmetadata',
       () => {
         console.info('Load video', {
           src: videoElem.src,
           time: videoElem.currentTime,
           play: !videoElem.paused,
         });
-        sendCtl(
-          videoElem.src,
-          Math.floor(videoElem.currentTime * 1000),
-          !videoElem.paused,
-        );
+        updAndPingMemberStatus();
       },
       {signal: controller.signal},
     );
@@ -706,15 +773,10 @@ const StatusBar: FC<StatusBarProps> = ({videoElem}) => {
       'pause',
       () => {
         console.info('Pause video', {
-          src: videoElem.src,
           time: videoElem.currentTime,
           play: !videoElem.paused,
         });
-        sendCtl(
-          videoElem.src,
-          Math.floor(videoElem.currentTime * 1000),
-          !videoElem.paused,
-        );
+        updAndPingMemberStatus();
       },
       {signal: controller.signal},
     );
@@ -726,11 +788,7 @@ const StatusBar: FC<StatusBarProps> = ({videoElem}) => {
           time: videoElem.currentTime,
           play: !videoElem.paused,
         });
-        sendCtl(
-          videoElem.src,
-          Math.floor(videoElem.currentTime * 1000),
-          !videoElem.paused,
-        );
+        updAndPingMemberStatus();
       },
       {signal: controller.signal},
     );
@@ -744,7 +802,7 @@ const StatusBar: FC<StatusBarProps> = ({videoElem}) => {
     videoElem.addEventListener(
       'canplaythrough',
       () => {
-        console.info('Can playthrough video');
+        console.info('Can play through video');
       },
       {signal: controller.signal},
     );
@@ -755,59 +813,85 @@ const StatusBar: FC<StatusBarProps> = ({videoElem}) => {
       },
       {signal: controller.signal},
     );
+
+    videoElem.addEventListener(
+      'timeupdate',
+      () => {
+        updMemberStatus();
+      },
+      {signal: controller.signal},
+    );
+    updMemberStatus();
+
     return () => {
       controller.abort();
     };
-  }, [videoElem, sendCtl]);
+  }, [videoElem, updMemberStatus, updAndPingMemberStatus]);
 
   return (
     <Flex dir={FlexDir.Col} gap="8px">
-      {isNonNil(roomStatus) && <MemberList members={roomStatus.members} />}
+      {isNonNil(roomStatus) && (
+        <MemberList
+          roomStatus={roomStatus}
+          pingRef={pingRef}
+          videoElem={videoElem}
+        />
+      )}
       <RoomControls sendPing={sendPing} nameRef={nameRef} />
     </Flex>
   );
 };
 
-const fsOrigin = ARCADE_FS_ORIGIN;
-
 const Home: FC = () => {
-  const [videoURL, setVideoURL] = useState({name: '', url: ''});
+  const router = useRouter();
+  const routerURL = router.url;
+  const room = useMemo(() => {
+    const v = routerURL.searchParams.get('room');
+    if (isNil(v) || v.length === 0) {
+      return undefined;
+    }
+    return v;
+  }, [routerURL]);
+
+  const [videoURL, setVideoURL] = useState('');
   const [videoElem, setVideoElem] = useState<HTMLVideoElement | null>(null);
 
-  const loadVideo = useDebounceCallback(
+  const setVideo = useDebounceCallback(
     useCallback(
-      (_signal: AbortSignal, name: string) => {
-        const u = parseURL(`/fs/${name}`, fsOrigin);
-        if (isNil(u)) {
-          return;
-        }
-        setVideoURL({name, url: u.toString()});
+      (_signal: AbortSignal, url: string) => {
+        setVideoURL(url);
       },
       [setVideoURL],
     ),
     250,
   );
 
-  const load = useCallback(
-    (video: string) => {
-      loadVideo(undefined, video);
+  const loadVideoByURL = useCallback(
+    (url: string) => {
+      setVideo(undefined, url);
     },
-    [loadVideo],
+    [setVideo],
+  );
+
+  const loadVideoByName = useCallback(
+    (name: string) => {
+      const u = parseURL(`${fsPathPrefix}${name}`, fsOrigin);
+      if (isNil(u)) {
+        return;
+      }
+      setVideo(undefined, u.toString());
+    },
+    [setVideo],
   );
 
   return (
     <Box size={BoxSize.S6} center padded>
       <Flex dir={FlexDir.Col} gap="16px">
-        {videoURL.url.length > 0 && (
-          <Video
-            elem={videoElem}
-            setElem={setVideoElem}
-            name={videoURL.name}
-            url={videoURL.url}
-          />
+        {videoURL.length > 0 && (
+          <Video elem={videoElem} setElem={setVideoElem} url={videoURL} />
         )}
-        <StatusBar videoElem={videoElem} load={load} />
-        <Search load={load} />
+        <StatusBar room={room} videoElem={videoElem} load={loadVideoByURL} />
+        <Search load={loadVideoByName} />
       </Flex>
     </Box>
   );

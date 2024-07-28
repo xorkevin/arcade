@@ -25,7 +25,9 @@ type (
 
 	roomState struct {
 		Members map[string]*memberState `json:"members"`
-		Video   string                  `json:"video,omitempty"`
+		Video   string                  `json:"video"`
+		Pos     int64                   `json:"pos"`
+		Play    bool                    `json:"play"`
 		At      int64                   `json:"at"`
 	}
 
@@ -47,6 +49,21 @@ type (
 
 	reqCtl struct {
 		Room  string `json:"room"`
+		Video string `json:"video"`
+		Pos   int64  `json:"pos"`
+		Play  bool   `json:"play"`
+	}
+
+	resRoomState struct {
+		Members     map[string]*memberState `json:"members"`
+		Video       string                  `json:"video"`
+		Pos         int64                   `json:"pos"`
+		Play        bool                    `json:"play"`
+		At          int64                   `json:"at"`
+		ResDuration int64                   `json:"d"`
+	}
+
+	resCtl struct {
 		Video string `json:"video"`
 		Pos   int64  `json:"pos"`
 		Play  bool   `json:"play"`
@@ -132,6 +149,9 @@ func (s *Service) Handle(ctx context.Context, w ws.WSWriter, m ws.ReqMsgBytes) e
 			return err
 		}
 	case "arcade.room.ctl":
+		if err := s.handleCtlRoom(m); err != nil {
+			return err
+		}
 	default:
 		return governor.ErrWS(nil, int(websocket.StatusInvalidFramePayloadData), fmt.Sprintf("Unexpected channel %s", m.Channel))
 	}
@@ -209,9 +229,87 @@ func (s *Service) pingRoom(room string, id string, req reqPing, at int64) ([]byt
 
 	r.At = time.Now().UnixMilli()
 
-	b, err := kjson.Marshal(r)
+	b, err := kjson.Marshal(resRoomState{
+		Members:     r.Members,
+		Video:       r.Video,
+		Pos:         r.Pos,
+		Play:        r.Play,
+		At:          r.At,
+		ResDuration: r.At - at,
+	})
 	if err != nil {
 		return nil, kerrors.WithMsg(err, "Failed to marshal room state")
+	}
+	return b, nil
+}
+
+func (s *Service) handleCtlRoom(m ws.ReqMsgBytes) error {
+	var req reqCtl
+	if err := kjson.Unmarshal(m.Value, &req); err != nil {
+		return governor.ErrWS(err, int(websocket.StatusInvalidFramePayloadData), "Invalid req body")
+	}
+
+	if req.Room == "" {
+		return governor.ErrWS(nil, int(websocket.StatusInvalidFramePayloadData), "Room not provided")
+	}
+	if len(req.Room) > 127 {
+		return governor.ErrWS(nil, int(websocket.StatusInvalidFramePayloadData), "Invalid room")
+	}
+	if len(req.Video) > 8192 {
+		return governor.ErrWS(nil, int(websocket.StatusInvalidFramePayloadData), "Invalid video")
+	}
+	if req.Pos < 0 {
+		return governor.ErrWS(nil, int(websocket.StatusInvalidFramePayloadData), "Invalid pos")
+	}
+
+	b, err := s.ctlRoom(req.Room, m.Userid, req)
+	if err != nil {
+		return err
+	}
+	_, err = kjson.Marshal(ws.ResMsgBytes{
+		ID:      m.ID,
+		Channel: m.Channel,
+		Value:   b,
+	})
+	if err != nil {
+		return kerrors.WithMsg(err, "Failed to marshal room control message")
+	}
+	return nil
+}
+
+func (s *Service) ctlRoom(room string, id string, req reqCtl) ([]byte, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	r, ok := s.rooms[room]
+	if !ok {
+		return nil, kerrors.WithMsg(nil, "Invalid room")
+	}
+
+	if _, ok := r.Members[id]; !ok {
+		return nil, kerrors.WithMsg(nil, "Not member of room")
+	}
+
+	r.Video = req.Video
+	r.Pos = req.Pos
+	r.Play = req.Play
+
+	now := time.Now().UnixMilli()
+	for k, v := range r.Members {
+		if v.At+7000 < now {
+			delete(r.Members, k)
+		}
+	}
+
+	r.At = time.Now().UnixMilli()
+
+	b, err := kjson.Marshal(resCtl{
+		Video: r.Video,
+		Pos:   r.Pos,
+		Play:  r.Play,
+	})
+	if err != nil {
+		return nil, kerrors.WithMsg(err, "Failed to marshal room control message")
 	}
 	return b, nil
 }
