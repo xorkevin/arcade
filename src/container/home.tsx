@@ -499,46 +499,49 @@ const MemberList: FC<MemberListProps> = ({roomStatus, videoState, pingRef}) => {
   return (
     <ul className={modClassNames(styles, 'memberlist')}>
       <li>
-        Room @{' '}
-        {Math.floor(
-          approxPos(
-            videoState.current.play,
-            videoState.current.pos,
-            0,
-            videoState.current.ctlat,
-            videoState.current.at,
-            pingRef.current,
-            videoState.current.localAt,
-            curTime,
-          ) / 1000,
-        )}
-        s {videoState.current.play ? 'playing' : 'paused'}
+        Room{' '}
+        <code>
+          @{' '}
+          {Math.floor(
+            approxPos(
+              videoState.current.play,
+              videoState.current.pos,
+              0,
+              videoState.current.ctlat,
+              videoState.current.at,
+              pingRef.current,
+              videoState.current.localAt,
+              curTime,
+            ) / 1000,
+          )}
+          s {videoState.current.play ? 'playing' : 'paused'}
+        </code>
       </li>
       {Object.entries(roomStatus.members).map(([id, member]) => (
         <li key={id}>
-          {member.name} (
+          {member.name}{' '}
           <code>
+            (
             {isNil(member.ping)
               ? '-'
               : member.ping < 0
                 ? '>5000'
                 : String(member.ping)}
-            ms
+            ms) @{' '}
+            {Math.floor(
+              approxPos(
+                member.play,
+                member.pos,
+                member.ping,
+                member.at,
+                roomStatus.at,
+                pingRef.current,
+                roomStatus.localAt,
+                curTime,
+              ) / 1000,
+            )}
+            s {member.play ? 'playing' : 'paused'}
           </code>
-          ) @{' '}
-          {Math.floor(
-            approxPos(
-              member.play,
-              member.pos,
-              member.ping,
-              member.at,
-              roomStatus.at,
-              pingRef.current,
-              roomStatus.localAt,
-              curTime,
-            ) / 1000,
-          )}
-          s {member.play ? 'playing' : 'paused'}
         </li>
       ))}
     </ul>
@@ -1137,6 +1140,8 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
     updAndPingMemberStatus,
     videoState,
     pingRef,
+    room,
+    load,
     sendCtl,
     debouncingSendCtl,
   ]);
