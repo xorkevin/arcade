@@ -75,6 +75,8 @@ type (
 		Video string `json:"video"`
 		Pos   int64  `json:"pos"`
 		Play  bool   `json:"play"`
+		CtlAt int64  `json:"ctlat"`
+		At    int64  `json:"at"`
 		Ctr   uint32 `json:"ctr"`
 	}
 )
@@ -343,6 +345,8 @@ func (s *Service) ctlRoom(room string, id string, req reqCtl) ([]byte, []ws.WSWr
 		Video: r.Video,
 		Pos:   r.Pos,
 		Play:  r.Play,
+		CtlAt: r.CtlAt,
+		At:    r.At,
 		Ctr:   r.Ctr,
 	})
 	if err != nil {

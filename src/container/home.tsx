@@ -470,6 +470,16 @@ type RoomStatus = {
   ctr: number;
 };
 
+type VideoState = {
+  video: string;
+  pos: number;
+  play: boolean;
+  ctlat: number;
+  at: number;
+  localAt: number;
+  ctr: number;
+};
+
 const approxPos = (
   play: boolean,
   pos: number,
@@ -496,21 +506,38 @@ const curTimeInitState = () => performance.now();
 
 type MemberListProps = {
   roomStatus: RoomStatus;
+  videoState: {current: VideoState};
   pingRef: {current: number | undefined};
 };
 
-const MemberList: FC<MemberListProps> = ({roomStatus, pingRef}) => {
+const MemberList: FC<MemberListProps> = ({roomStatus, videoState, pingRef}) => {
   const [curTime, setCurTime] = useState(curTimeInitState);
   useEffect(() => {
     const timer = setInterval(() => {
       setCurTime(performance.now());
-    }, 125);
+    }, 250);
     return () => {
       clearInterval(timer);
     };
   }, [setCurTime]);
   return (
     <ul className={modClassNames(styles, 'memberlist')}>
+      <li>
+        Room @{' '}
+        {Math.floor(
+          approxPos(
+            videoState.current.play,
+            videoState.current.pos,
+            0,
+            videoState.current.ctlat,
+            videoState.current.at,
+            pingRef.current,
+            videoState.current.localAt,
+            curTime,
+          ) / 1000,
+        )}
+        s {videoState.current.play ? 'playing' : 'paused'}
+      </li>
       {Object.entries(roomStatus.members).map(([id, member]) => (
         <li key={id}>
           {member.name} (
@@ -621,12 +648,7 @@ const wrappingLeq = (a: number, b: number) => {
   return a > b;
 };
 
-type VideoState = {
-  video: string;
-  pos: number;
-  play: boolean;
-  ctr: number;
-};
+const approxEq = (a: number, b: number) => abs(a, b) < 0.125;
 
 type StatusBarProps = {
   room: string | undefined;
@@ -669,11 +691,25 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
     video: '',
     pos: 0,
     play: false,
+    ctlat: 0,
+    at: 0,
+    localAt: performance.now(),
     ctr: -1,
   });
+  const clearVideoState = useCallback(() => {
+    videoState.current.video = '';
+    videoState.current.pos = 0;
+    videoState.current.play = false;
+    videoState.current.ctlat = 0;
+    videoState.current.at = 0;
+    videoState.current.localAt = performance.now();
+    videoState.current.ctr = -1;
+    load('');
+  }, [videoState, load]);
 
   useEffect(() => {
     setRoomStatus(undefined);
+    clearVideoState();
     if (isNil(room)) {
       return;
     }
@@ -693,6 +729,7 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
         timer = setInterval(() => {
           if (isNonNil(lastPing.current)) {
             setRoomStatus(undefined);
+            clearVideoState();
             pingRef.current = -1;
             lastPing.current = undefined;
           }
@@ -705,6 +742,7 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
       'close',
       () => {
         setRoomStatus(undefined);
+        clearVideoState();
         pingRef.current = undefined;
         lastPing.current = undefined;
         if (isNonNil(timer)) {
@@ -775,10 +813,11 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
               pingRef.current = ping;
               lastPing.current = undefined;
             }
+            const localAt = performance.now();
             const next = {
               members: data.v.members as Record<string, MemberStatus>,
               at: data.v.at,
-              localAt: performance.now(),
+              localAt,
               ctr: data.v.ctr,
             };
             setRoomStatus((state) => {
@@ -787,6 +826,22 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
               }
               return next;
             });
+
+            if (
+              (videoState.current.ctr < 0 ||
+                !wrappingLeq(data.v.ctr, videoState.current.ctr)) &&
+              data.v.video !== videoState.current.video
+            ) {
+              videoState.current.video = data.v.video;
+              videoState.current.pos = data.v.pos;
+              videoState.current.play = data.v.play;
+              videoState.current.ctlat = data.v.ctlat;
+              videoState.current.at = data.v.at;
+              videoState.current.localAt = localAt;
+              videoState.current.ctr = data.v.ctr;
+              load(data.v.video);
+              return;
+            }
             return;
           }
 
@@ -802,6 +857,10 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
               typeof data.v.pos !== 'number' ||
               !('play' in data.v) ||
               typeof data.v.play !== 'boolean' ||
+              !('ctlat' in data.v) ||
+              typeof data.v.ctlat !== 'number' ||
+              !('at' in data.v) ||
+              typeof data.v.at !== 'number' ||
               !('ctr' in data.v) ||
               typeof data.v.ctr !== 'number'
             ) {
@@ -813,9 +872,12 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
             }
 
             if (data.v.video !== videoState.current.video) {
-              videoState.current.video;
+              videoState.current.video = data.v.video;
               videoState.current.pos = data.v.pos;
               videoState.current.play = data.v.play;
+              videoState.current.ctlat = data.v.ctlat;
+              videoState.current.at = data.v.at;
+              videoState.current.localAt = performance.now();
               videoState.current.ctr = data.v.ctr;
               load(data.v.video);
               return;
@@ -855,7 +917,17 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
         clearInterval(timer);
       }
     };
-  }, [ws, room, setRoomStatus, lastPing, sendPing, pingRef, videoState, load]);
+  }, [
+    ws,
+    room,
+    setRoomStatus,
+    lastPing,
+    sendPing,
+    pingRef,
+    videoState,
+    clearVideoState,
+    load,
+  ]);
 
   const updMemberStatus = useCallback(() => {
     if (isNil(videoElem)) {
@@ -879,9 +951,24 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
       () => {
         console.info('Load video', {
           src: videoElem.src,
-          time: videoElem.currentTime,
-          play: !videoElem.paused,
         });
+        if (videoElem.src !== videoState.current.video) {
+          return;
+        }
+        const target =
+          approxPos(
+            videoState.current.play,
+            videoState.current.pos,
+            0,
+            videoState.current.ctlat,
+            videoState.current.at,
+            pingRef.current,
+            videoState.current.localAt,
+            performance.now(),
+          ) / 1000;
+        if (!approxEq(videoElem.currentTime, target)) {
+          videoElem.currentTime = target;
+        }
         updAndPingMemberStatus();
       },
       {signal: controller.signal},
@@ -942,12 +1029,16 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
     return () => {
       controller.abort();
     };
-  }, [videoElem, updMemberStatus, updAndPingMemberStatus]);
+  }, [videoElem, updMemberStatus, updAndPingMemberStatus, videoState, pingRef]);
 
   return (
     <Flex dir={FlexDir.Col} gap="8px">
       {isNonNil(roomStatus) && (
-        <MemberList roomStatus={roomStatus} pingRef={pingRef} />
+        <MemberList
+          roomStatus={roomStatus}
+          videoState={videoState}
+          pingRef={pingRef}
+        />
       )}
       <RoomControls sendPing={sendPing} nameRef={nameRef} />
     </Flex>
