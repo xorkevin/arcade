@@ -938,15 +938,26 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
             }
 
             const videoDiff = data.v.video !== videoState.current.video;
-            const target = data.v.pos / 1000;
-            const posDiff = !approxEq(target, videoState.current.pos / 1000);
+            const localAt = performance.now();
+            const target =
+              approxPos(
+                data.v.play,
+                data.v.pos,
+                0,
+                data.v.ctlat,
+                data.v.at,
+                pingRef.current,
+                localAt,
+                localAt,
+              ) / 1000;
+            const posDiff = !approxEq(target, videoElem.currentTime);
 
             videoState.current.video = data.v.video;
             videoState.current.pos = data.v.pos;
             videoState.current.play = data.v.play;
             videoState.current.ctlat = data.v.ctlat;
             videoState.current.at = data.v.at;
-            videoState.current.localAt = performance.now();
+            videoState.current.localAt = localAt;
             videoState.current.ctr = data.v.ctr;
 
             if (videoDiff) {
