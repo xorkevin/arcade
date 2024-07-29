@@ -390,20 +390,6 @@ const Video: FC<VideoProps> = ({elem, setElem, url}) => {
     };
   }, [elem]);
 
-  const seekHalf = useCallback(() => {
-    if (isNil(elem) || Number.isNaN(elem.duration)) {
-      return;
-    }
-    elem.currentTime = elem.duration / 2;
-  }, [elem]);
-
-  const pause = useCallback(() => {
-    if (isNil(elem)) {
-      return;
-    }
-    elem.pause();
-  }, [elem]);
-
   const name = useMemo(() => {
     const u = parseURL(url);
     if (isNil(u)) {
@@ -424,17 +410,7 @@ const Video: FC<VideoProps> = ({elem, setElem, url}) => {
   return (
     <Flex dir={FlexDir.Col} gap="8px">
       <video ref={setElem} src={url} controls={true} muted />
-      <Flex alignItems={FlexAlignItems.Start} gap="8px">
-        <code>{name}</code>
-        <ButtonGroup gap>
-          <Button variant={ButtonVariant.Subtle} onClick={seekHalf}>
-            Seek 50%
-          </Button>
-          <Button variant={ButtonVariant.Subtle} onClick={pause}>
-            Pause
-          </Button>
-        </ButtonGroup>
-      </Flex>
+      <code>{name}</code>
     </Flex>
   );
 };
@@ -844,46 +820,6 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
             }
             return;
           }
-
-          case 'arcade.room.ctl': {
-            if (
-              !('v' in data) ||
-              !isObject(data.v) ||
-              !('room' in data.v) ||
-              data.v.room !== room ||
-              !('video' in data.v) ||
-              typeof data.v.video !== 'string' ||
-              !('pos' in data.v) ||
-              typeof data.v.pos !== 'number' ||
-              !('play' in data.v) ||
-              typeof data.v.play !== 'boolean' ||
-              !('ctlat' in data.v) ||
-              typeof data.v.ctlat !== 'number' ||
-              !('at' in data.v) ||
-              typeof data.v.at !== 'number' ||
-              !('ctr' in data.v) ||
-              typeof data.v.ctr !== 'number'
-            ) {
-              return;
-            }
-
-            if (wrappingLeq(data.v.ctr, videoState.current.ctr)) {
-              return;
-            }
-
-            if (data.v.video !== videoState.current.video) {
-              videoState.current.video = data.v.video;
-              videoState.current.pos = data.v.pos;
-              videoState.current.play = data.v.play;
-              videoState.current.ctlat = data.v.ctlat;
-              videoState.current.at = data.v.at;
-              videoState.current.localAt = performance.now();
-              videoState.current.ctr = data.v.ctr;
-              load(data.v.video);
-              return;
-            }
-            return;
-          }
         }
       },
       {signal: controller.signal},
@@ -929,6 +865,25 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
     load,
   ]);
 
+  const sendCtl = useCallback(
+    (video: string, pos: number, play: boolean) => {
+      if (!ws.isOpen() || isNil(room)) {
+        return;
+      }
+      ws.send(
+        JSON.stringify({
+          ch: 'arcade.room.ctl',
+          v: {
+            room,
+            video,
+            pos,
+            play,
+          },
+        }),
+      );
+    },
+    [ws, room],
+  );
   const updMemberStatus = useCallback(() => {
     if (isNil(videoElem)) {
       return;
@@ -946,6 +901,81 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
     }
 
     const controller = new AbortController();
+
+    ws.addEventListener(
+      'message',
+      (ev: MessageEvent<string>) => {
+        const data = parseJSON(ev.data);
+        if (!isObject(data) || !('ch' in data)) {
+          return;
+        }
+
+        switch (data.ch) {
+          case 'arcade.room.ctl': {
+            if (
+              !('v' in data) ||
+              !isObject(data.v) ||
+              !('room' in data.v) ||
+              data.v.room !== room ||
+              !('video' in data.v) ||
+              typeof data.v.video !== 'string' ||
+              !('pos' in data.v) ||
+              typeof data.v.pos !== 'number' ||
+              !('play' in data.v) ||
+              typeof data.v.play !== 'boolean' ||
+              !('ctlat' in data.v) ||
+              typeof data.v.ctlat !== 'number' ||
+              !('at' in data.v) ||
+              typeof data.v.at !== 'number' ||
+              !('ctr' in data.v) ||
+              typeof data.v.ctr !== 'number'
+            ) {
+              return;
+            }
+
+            if (wrappingLeq(data.v.ctr, videoState.current.ctr)) {
+              return;
+            }
+
+            const videoDiff = data.v.video !== videoState.current.video;
+            const target = data.v.pos / 1000;
+            const posDiff = !approxEq(target, videoState.current.pos / 1000);
+
+            videoState.current.video = data.v.video;
+            videoState.current.pos = data.v.pos;
+            videoState.current.play = data.v.play;
+            videoState.current.ctlat = data.v.ctlat;
+            videoState.current.at = data.v.at;
+            videoState.current.localAt = performance.now();
+            videoState.current.ctr = data.v.ctr;
+
+            if (videoDiff) {
+              load(data.v.video);
+              return;
+            }
+
+            if (data.v.play) {
+              if (posDiff) {
+                videoElem.currentTime = target;
+              }
+              videoElem.play().catch((err: unknown) => {
+                console.error('Failed to play video', {
+                  cause: err,
+                });
+              });
+              return;
+            }
+
+            videoElem.pause();
+            if (posDiff) {
+              videoElem.currentTime = target;
+            }
+            return;
+          }
+        }
+      },
+      {signal: controller.signal},
+    );
     videoElem.addEventListener(
       'loadedmetadata',
       () => {
@@ -969,6 +999,13 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
         if (!approxEq(videoElem.currentTime, target)) {
           videoElem.currentTime = target;
         }
+        if (videoState.current.play) {
+          videoElem.play().catch((err: unknown) => {
+            console.error('Failed to play video', {
+              cause: err,
+            });
+          });
+        }
         updAndPingMemberStatus();
       },
       {signal: controller.signal},
@@ -977,10 +1014,22 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
       'pause',
       () => {
         console.info('Pause video', {
+          src: videoElem.src,
           time: videoElem.currentTime,
           play: !videoElem.paused,
         });
         updAndPingMemberStatus();
+        if (
+          videoElem.src !== videoState.current.video ||
+          !videoState.current.play
+        ) {
+          return;
+        }
+        sendCtl(
+          videoState.current.video,
+          Math.floor(videoElem.currentTime * 1000),
+          !videoElem.paused,
+        );
       },
       {signal: controller.signal},
     );
@@ -988,10 +1037,22 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
       'play',
       () => {
         console.info('Play video', {
+          src: videoElem.src,
           time: videoElem.currentTime,
           play: !videoElem.paused,
         });
         updAndPingMemberStatus();
+        if (
+          videoElem.src !== videoState.current.video ||
+          videoState.current.play
+        ) {
+          return;
+        }
+        sendCtl(
+          videoState.current.video,
+          Math.floor(videoElem.currentTime * 1000),
+          !videoElem.paused,
+        );
       },
       {signal: controller.signal},
     );
@@ -1029,7 +1090,15 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
     return () => {
       controller.abort();
     };
-  }, [videoElem, updMemberStatus, updAndPingMemberStatus, videoState, pingRef]);
+  }, [
+    ws,
+    videoElem,
+    updMemberStatus,
+    updAndPingMemberStatus,
+    videoState,
+    pingRef,
+    sendCtl,
+  ]);
 
   return (
     <Flex dir={FlexDir.Col} gap="8px">
