@@ -71,6 +71,7 @@ type (
 	}
 
 	resCtl struct {
+		Room  string `json:"room"`
 		Video string `json:"video"`
 		Pos   int64  `json:"pos"`
 		Play  bool   `json:"play"`
@@ -338,6 +339,7 @@ func (s *Service) ctlRoom(room string, id string, req reqCtl) ([]byte, []ws.WSWr
 	r.At = r.CtlAt
 
 	b, err := kjson.Marshal(resCtl{
+		Room:  r.ID,
 		Video: r.Video,
 		Pos:   r.Pos,
 		Play:  r.Play,

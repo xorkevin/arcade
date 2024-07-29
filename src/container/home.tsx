@@ -207,13 +207,52 @@ const SearchList: FC<SearchListProps> = ({searchRes, search, load}) => {
   );
 };
 
+const fsOrigin = ARCADE_FS_ORIGIN;
+const fsPathPrefix = '/fs/';
+
 const formInitState = () => ({search: ''});
 
 type SearchProps = {
-  load: (v: string) => void;
+  room: string | undefined;
 };
 
-const Search: FC<SearchProps> = ({load}) => {
+const Search: FC<SearchProps> = ({room}) => {
+  const ws = useContext(WSContext);
+
+  const loadVideo = useDebounceCallback(
+    useCallback(
+      (_signal: AbortSignal, name: string) => {
+        const u = parseURL(`${fsPathPrefix}${name}`, fsOrigin);
+        if (isNil(u)) {
+          return;
+        }
+        if (!ws.isOpen() || isNil(room)) {
+          return;
+        }
+        ws.send(
+          JSON.stringify({
+            ch: 'arcade.room.ctl',
+            v: {
+              room,
+              video: u.toString(),
+              pos: 0,
+              play: false,
+            },
+          }),
+        );
+      },
+      [ws, room],
+    ),
+    125,
+  );
+
+  const load = useCallback(
+    (name: string) => {
+      loadVideo(undefined, name);
+    },
+    [loadVideo],
+  );
+
   const form = useForm(formInitState);
 
   const [searchRes, setSearchRes] = useState<SearchRes | undefined>(undefined);
@@ -265,7 +304,7 @@ const Search: FC<SearchProps> = ({load}) => {
       },
       [setSearchRes],
     ),
-    250,
+    125,
   );
 
   const formState = form.state;
@@ -309,9 +348,6 @@ const Search: FC<SearchProps> = ({load}) => {
     </Flex>
   );
 };
-
-const fsOrigin = ARCADE_FS_ORIGIN;
-const fsPathPrefix = '/fs/';
 
 type VideoProps = {
   elem: HTMLVideoElement | null;
@@ -468,7 +504,7 @@ const MemberList: FC<MemberListProps> = ({roomStatus, pingRef}) => {
   useEffect(() => {
     const timer = setInterval(() => {
       setCurTime(performance.now());
-    }, 250);
+    }, 125);
     return () => {
       clearInterval(timer);
     };
@@ -533,7 +569,7 @@ const RoomControls: FC<RoomControlsProps> = ({nameRef, sendPing}) => {
       },
       [nameRef, sendPing],
     ),
-    250,
+    125,
   );
 
   const formState = form.state;
@@ -585,18 +621,21 @@ const wrappingLeq = (a: number, b: number) => {
   return a > b;
 };
 
+type VideoState = {
+  video: string;
+  pos: number;
+  play: boolean;
+  ctr: number;
+};
+
 type StatusBarProps = {
   room: string | undefined;
   videoElem: HTMLVideoElement | null;
   load: (v: string) => void;
 };
 
-const StatusBar: FC<StatusBarProps> = ({room, videoElem}) => {
+const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
   const ws = useContext(WSContext);
-
-  const [roomStatus, setRoomStatus] = useState<RoomStatus | undefined>(
-    undefined,
-  );
 
   const memberStatusRef = useRef({pos: 0, play: false});
   const nameRef = useRef('Anonymous');
@@ -622,6 +661,17 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem}) => {
     );
     lastPing.current = {id, at: performance.now()};
   }, [ws, lastPing, room, memberStatusRef, nameRef, pingRef]);
+
+  const [roomStatus, setRoomStatus] = useState<RoomStatus | undefined>(
+    undefined,
+  );
+  const videoState = useRef<VideoState>({
+    video: '',
+    pos: 0,
+    play: false,
+    ctr: -1,
+  });
+
   useEffect(() => {
     setRoomStatus(undefined);
     if (isNil(room)) {
@@ -669,76 +719,116 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem}) => {
       'message',
       (ev: MessageEvent<string>) => {
         const data = parseJSON(ev.data);
-        if (
-          !isObject(data) ||
-          !('ch' in data) ||
-          !('v' in data) ||
-          data.ch !== 'arcade.room.ping' ||
-          !isObject(data.v) ||
-          !('room' in data.v) ||
-          data.v.room !== room ||
-          !('members' in data.v) ||
-          !isObject(data.v.members) ||
-          Object.values(data.v.members).some(
-            (v: unknown) =>
-              !isObject(v) ||
-              !('name' in v) ||
-              typeof v.name !== 'string' ||
-              ('ping' in v && typeof v.ping !== 'number') ||
-              !('pos' in v) ||
-              typeof v.pos !== 'number' ||
-              !('play' in v) ||
-              typeof v.play !== 'boolean' ||
-              !('at' in v) ||
-              typeof v.at !== 'number',
-          ) ||
-          !('video' in data.v) ||
-          typeof data.v.video !== 'string' ||
-          !('pos' in data.v) ||
-          typeof data.v.pos !== 'number' ||
-          !('play' in data.v) ||
-          typeof data.v.play !== 'boolean' ||
-          !('ctlat' in data.v) ||
-          typeof data.v.ctlat !== 'number' ||
-          !('at' in data.v) ||
-          typeof data.v.at !== 'number' ||
-          !('d' in data.v) ||
-          typeof data.v.d !== 'number' ||
-          !('ctr' in data.v) ||
-          typeof data.v.ctr !== 'number'
-        ) {
+        if (!isObject(data) || !('ch' in data)) {
           return;
         }
-        if (
-          isNonNil(lastPing.current) &&
-          'id' in data &&
-          data.id === lastPing.current.id
-        ) {
-          const ping = Math.max(
-            Math.ceil(performance.now() - lastPing.current.at - data.v.d),
-            1,
-          );
-          pingRef.current = ping;
-          lastPing.current = undefined;
-        }
-        const next = {
-          members: data.v.members as Record<string, MemberStatus>,
-          at: data.v.at,
-          localAt: performance.now(),
-          ctr: data.v.ctr,
-        };
-        setRoomStatus((state) => {
-          if (isNonNil(state) && wrappingLeq(next.ctr, state.ctr)) {
-            return state;
+
+        switch (data.ch) {
+          case 'arcade.room.ping': {
+            if (
+              !('v' in data) ||
+              !isObject(data.v) ||
+              !('room' in data.v) ||
+              data.v.room !== room ||
+              !('members' in data.v) ||
+              !isObject(data.v.members) ||
+              Object.values(data.v.members).some(
+                (v: unknown) =>
+                  !isObject(v) ||
+                  !('name' in v) ||
+                  typeof v.name !== 'string' ||
+                  ('ping' in v && typeof v.ping !== 'number') ||
+                  !('pos' in v) ||
+                  typeof v.pos !== 'number' ||
+                  !('play' in v) ||
+                  typeof v.play !== 'boolean' ||
+                  !('at' in v) ||
+                  typeof v.at !== 'number',
+              ) ||
+              !('video' in data.v) ||
+              typeof data.v.video !== 'string' ||
+              !('pos' in data.v) ||
+              typeof data.v.pos !== 'number' ||
+              !('play' in data.v) ||
+              typeof data.v.play !== 'boolean' ||
+              !('ctlat' in data.v) ||
+              typeof data.v.ctlat !== 'number' ||
+              !('at' in data.v) ||
+              typeof data.v.at !== 'number' ||
+              !('d' in data.v) ||
+              typeof data.v.d !== 'number' ||
+              !('ctr' in data.v) ||
+              typeof data.v.ctr !== 'number'
+            ) {
+              return;
+            }
+
+            if (
+              isNonNil(lastPing.current) &&
+              'id' in data &&
+              data.id === lastPing.current.id
+            ) {
+              const ping = Math.max(
+                Math.ceil(performance.now() - lastPing.current.at - data.v.d),
+                1,
+              );
+              pingRef.current = ping;
+              lastPing.current = undefined;
+            }
+            const next = {
+              members: data.v.members as Record<string, MemberStatus>,
+              at: data.v.at,
+              localAt: performance.now(),
+              ctr: data.v.ctr,
+            };
+            setRoomStatus((state) => {
+              if (isNonNil(state) && wrappingLeq(next.ctr, state.ctr)) {
+                return state;
+              }
+              return next;
+            });
+            return;
           }
-          return next;
-        });
+
+          case 'arcade.room.ctl': {
+            if (
+              !('v' in data) ||
+              !isObject(data.v) ||
+              !('room' in data.v) ||
+              data.v.room !== room ||
+              !('video' in data.v) ||
+              typeof data.v.video !== 'string' ||
+              !('pos' in data.v) ||
+              typeof data.v.pos !== 'number' ||
+              !('play' in data.v) ||
+              typeof data.v.play !== 'boolean' ||
+              !('ctr' in data.v) ||
+              typeof data.v.ctr !== 'number'
+            ) {
+              return;
+            }
+
+            if (wrappingLeq(data.v.ctr, videoState.current.ctr)) {
+              return;
+            }
+
+            if (data.v.video !== videoState.current.video) {
+              videoState.current.video;
+              videoState.current.pos = data.v.pos;
+              videoState.current.play = data.v.play;
+              videoState.current.ctr = data.v.ctr;
+              load(data.v.video);
+              return;
+            }
+            return;
+          }
+        }
       },
       {signal: controller.signal},
     );
 
     void (async () => {
-      await sleep(250, {signal: controller.signal});
+      await sleep(125, {signal: controller.signal});
       if (isSignalAborted(controller.signal) || !ws.isOpen()) {
         return;
       }
@@ -765,7 +855,7 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem}) => {
         clearInterval(timer);
       }
     };
-  }, [ws, room, setRoomStatus, lastPing, sendPing, pingRef]);
+  }, [ws, room, setRoomStatus, lastPing, sendPing, pingRef, videoState, load]);
 
   const updMemberStatus = useCallback(() => {
     if (isNil(videoElem)) {
@@ -885,23 +975,12 @@ const Home: FC = () => {
       },
       [setVideoURL],
     ),
-    250,
+    125,
   );
 
   const loadVideoByURL = useCallback(
     (url: string) => {
       setVideo(undefined, url);
-    },
-    [setVideo],
-  );
-
-  const loadVideoByName = useCallback(
-    (name: string) => {
-      const u = parseURL(`${fsPathPrefix}${name}`, fsOrigin);
-      if (isNil(u)) {
-        return;
-      }
-      setVideo(undefined, u.toString());
     },
     [setVideo],
   );
@@ -913,7 +992,7 @@ const Home: FC = () => {
           <Video elem={videoElem} setElem={setVideoElem} url={videoURL} />
         )}
         <StatusBar room={room} videoElem={videoElem} load={loadVideoByURL} />
-        <Search load={loadVideoByName} />
+        <Search room={room} />
       </Flex>
     </Box>
   );
