@@ -884,6 +884,21 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
     },
     [ws, room],
   );
+  const debouncingSendCtl = useDebounceCallback(
+    useCallback(
+      (_signal: AbortSignal, video: string, pos: number, play: boolean) => {
+        if (isNil(videoElem)) {
+          return;
+        }
+        if (!videoElem.paused) {
+          return;
+        }
+        sendCtl(video, pos, play);
+      },
+      [videoElem, sendCtl],
+    ),
+    384,
+  );
   const updMemberStatus = useCallback(() => {
     if (isNil(videoElem)) {
       return;
@@ -1070,7 +1085,21 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
     videoElem.addEventListener(
       'seeking',
       () => {
-        console.info('Seeking video', {time: videoElem.currentTime});
+        console.info('Seeking video', {
+          src: videoElem.src,
+          time: videoElem.currentTime,
+          play: !videoElem.paused,
+        });
+        if (videoElem.src !== videoState.current.video) {
+          return;
+        }
+        debouncingSendCtl(
+          undefined,
+          videoState.current.video,
+          Math.floor(videoElem.currentTime * 1000),
+          // explicitly pause for seek
+          false,
+        );
       },
       {signal: controller.signal},
     );
@@ -1109,6 +1138,7 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
     videoState,
     pingRef,
     sendCtl,
+    debouncingSendCtl,
   ]);
 
   return (
