@@ -29,6 +29,35 @@
       &:hover {
         background-color: var(--nuke-color-bg-3);
       }
+
+      & > code {
+        & > .playpause {
+          display: inline-block;
+          width: 0.8em;
+          text-align: center;
+          transition: color 125ms ease;
+
+          &.unready {
+            color: var(--app-color-warn-1);
+          }
+        }
+
+        & > .ping {
+          transition: color 125ms ease;
+
+          &.ok {
+            color: var(--app-color-success-1);
+          }
+
+          &.warn {
+            color: var(--app-color-warn-1);
+          }
+
+          &.danger {
+            color: var(--app-color-danger-1);
+          }
+        }
+      }
     }
   }
 }

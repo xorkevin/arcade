@@ -35,20 +35,22 @@ type (
 	}
 
 	memberState struct {
-		Name string `json:"name"`
-		Ping int64  `json:"ping,omitempty"`
-		Pos  int64  `json:"pos"`
-		Play bool   `json:"play"`
-		At   int64  `json:"at"`
-		w    ws.WSWriter
+		Name  string `json:"name"`
+		Ping  int64  `json:"ping,omitempty"`
+		Pos   int64  `json:"pos"`
+		Play  bool   `json:"play"`
+		Ready bool   `json:"ready"`
+		At    int64  `json:"at"`
+		w     ws.WSWriter
 	}
 
 	reqPing struct {
-		Room string `json:"room"`
-		Name string `json:"name"`
-		Ping int64  `json:"ping"`
-		Pos  int64  `json:"pos"`
-		Play bool   `json:"play"`
+		Room  string `json:"room"`
+		Name  string `json:"name"`
+		Ping  int64  `json:"ping"`
+		Pos   int64  `json:"pos"`
+		Play  bool   `json:"play"`
+		Ready bool   `json:"ready"`
 	}
 
 	reqCtl struct {
@@ -237,6 +239,7 @@ func (s *Service) pingRoom(room string, id string, w ws.WSWriter, req reqPing, a
 	m.Ping = req.Ping
 	m.Pos = req.Pos
 	m.Play = req.Play
+	m.Ready = req.Ready
 	m.At = at
 	m.w = w
 

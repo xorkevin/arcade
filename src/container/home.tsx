@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  Fragment,
 } from 'react';
 
 import {
@@ -436,6 +437,7 @@ type MemberStatus = {
   ping: number | undefined;
   pos: number;
   play: boolean;
+  ready: boolean;
   at: number;
 };
 
@@ -501,7 +503,13 @@ const MemberList: FC<MemberListProps> = ({roomStatus, videoState, pingRef}) => {
       <li>
         Room{' '}
         <code>
-          @{' '}
+          <span className={modClassNames(styles, 'playpause')}>
+            {videoState.current.play ? (
+              <Fragment>&#9205;</Fragment>
+            ) : (
+              <Fragment>&#9208;</Fragment>
+            )}
+          </span>{' '}
           {Math.floor(
             approxPos(
               videoState.current.play,
@@ -514,7 +522,7 @@ const MemberList: FC<MemberListProps> = ({roomStatus, videoState, pingRef}) => {
               curTime,
             ) / 1000,
           )}
-          s {videoState.current.play ? 'playing' : 'paused'}
+          s
         </code>
       </li>
       {Object.entries(roomStatus.members).map(([id, member]) => (
@@ -522,12 +530,40 @@ const MemberList: FC<MemberListProps> = ({roomStatus, videoState, pingRef}) => {
           {member.name}{' '}
           <code>
             (
-            {isNil(member.ping)
-              ? '-'
-              : member.ping < 0
-                ? '>5000'
-                : String(member.ping)}
-            ms) @{' '}
+            <span
+              className={modClassNames(styles, {
+                ping: true,
+                ok:
+                  isNonNil(member.ping) && member.ping > 0 && member.ping < 100,
+                warn:
+                  isNonNil(member.ping) &&
+                  member.ping >= 100 &&
+                  member.ping < 250,
+                danger:
+                  isNonNil(member.ping) &&
+                  (member.ping < 0 || member.ping >= 250),
+              })}
+            >
+              {isNil(member.ping)
+                ? '-'
+                : member.ping < 0
+                  ? '>5000'
+                  : String(member.ping)}
+              ms
+            </span>
+            ){' '}
+            <span
+              className={modClassNames(styles, {
+                playpause: true,
+                unready: !member.ready,
+              })}
+            >
+              {member.play ? (
+                <Fragment>&#9205;</Fragment>
+              ) : (
+                <Fragment>&#9208;</Fragment>
+              )}
+            </span>{' '}
             {Math.floor(
               approxPos(
                 member.play,
@@ -540,7 +576,7 @@ const MemberList: FC<MemberListProps> = ({roomStatus, videoState, pingRef}) => {
                 curTime,
               ) / 1000,
             )}
-            s {member.play ? 'playing' : 'paused'}
+            s
           </code>
         </li>
       ))}
@@ -638,7 +674,7 @@ type StatusBarProps = {
 const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
   const ws = useContext(WSContext);
 
-  const memberStatusRef = useRef({pos: 0, play: false});
+  const memberStatusRef = useRef({pos: 0, play: false, ready: false});
   const nameRef = useRef('Anonymous');
   const pingRef = useRef<number | undefined>(undefined);
   const lastPing = useRef<{id: string; at: number} | undefined>(undefined);
@@ -657,6 +693,7 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
           ping: pingRef.current,
           pos: memberStatusRef.current.pos,
           play: memberStatusRef.current.play,
+          ready: memberStatusRef.current.ready,
         },
       }),
     );
@@ -759,6 +796,8 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
                   typeof v.pos !== 'number' ||
                   !('play' in v) ||
                   typeof v.play !== 'boolean' ||
+                  !('ready' in v) ||
+                  typeof v.ready !== 'boolean' ||
                   !('at' in v) ||
                   typeof v.at !== 'number',
               ) ||
@@ -897,8 +936,9 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
           return;
         }
         sendCtl(video, pos, play);
+        sendPing();
       },
-      [videoElem, sendCtl],
+      [videoElem, sendCtl, sendPing],
     ),
     384,
   );
@@ -908,6 +948,8 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
     }
     memberStatusRef.current.pos = Math.floor(videoElem.currentTime * 1000);
     memberStatusRef.current.play = !videoElem.paused;
+    memberStatusRef.current.ready =
+      videoElem.readyState === HTMLMediaElement.HAVE_ENOUGH_DATA;
   }, [videoElem, memberStatusRef]);
   const updAndPingMemberStatus = useCallback(() => {
     updMemberStatus();

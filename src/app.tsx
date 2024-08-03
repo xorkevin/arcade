@@ -168,8 +168,18 @@ const WSStatus = () => {
         })}
       />
       <code>
-        ping: {isNil(wsPing) ? '-' : wsPing < 0 ? '>5000' : String(wsPing)}
-        ms
+        ping:{' '}
+        <span
+          className={modClassNames(styles, {
+            'ws-ping': true,
+            ok: isNonNil(wsPing) && wsPing > 0 && wsPing < 100,
+            warn: isNonNil(wsPing) && wsPing >= 100 && wsPing < 250,
+            danger: isNonNil(wsPing) && (wsPing < 0 || wsPing >= 250),
+          })}
+        >
+          {isNil(wsPing) ? '-' : wsPing < 0 ? '>5000' : String(wsPing)}
+          ms
+        </span>
       </code>
     </Flex>
   );

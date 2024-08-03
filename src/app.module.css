@@ -1,6 +1,7 @@
 @layer app {
   :root {
     --app-color-success-1: oklch(67% 0.17 147);
+    --app-color-warn-1: oklch(70% 0.15 71);
     --app-color-danger-1: oklch(60% 0.2 24);
   }
 
@@ -10,10 +11,29 @@
     border-radius: 50%;
     background-color: var(--app-color-danger-1);
     box-shadow: 0 0 8px 0 var(--app-color-danger-1);
+    transition:
+      background-color 125ms ease,
+      box-shadow 125ms ease;
 
     &.ws-connected {
       background-color: var(--app-color-success-1);
       box-shadow: 0 0 8px 0 var(--app-color-success-1);
+    }
+  }
+
+  .ws-ping {
+    transition: color 125ms ease;
+
+    &.ok {
+      color: var(--app-color-success-1);
+    }
+
+    &.warn {
+      color: var(--app-color-warn-1);
+    }
+
+    &.danger {
+      color: var(--app-color-danger-1);
     }
   }
 }
