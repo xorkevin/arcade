@@ -1186,6 +1186,7 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
       'canplaythrough',
       () => {
         console.info('Can play through video');
+        updAndPingMemberStatus();
       },
       {signal: controller.signal},
     );
