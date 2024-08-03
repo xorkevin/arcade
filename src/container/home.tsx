@@ -12,11 +12,14 @@ import {
 
 import {
   Box,
+  BoxPadded,
   BoxSize,
   Flex,
   FlexAlignItems,
   FlexClasses,
   FlexDir,
+  FlexJustifyContent,
+  FlexWrap,
 } from '@xorkevin/nuke/component/box';
 import {
   Button,
@@ -408,10 +411,36 @@ const Video: FC<VideoProps> = ({elem, setElem, url}) => {
     return url;
   }, [url]);
 
+  const [theater, setTheater] = useState(false);
+  const toggleTheater = useCallback(() => {
+    setTheater((v) => !v);
+  }, [setTheater]);
+
   return (
     <Flex dir={FlexDir.Col} gap="8px">
-      <video ref={setElem} src={url} controls={true} muted />
-      <code>{name}</code>
+      <Box
+        size={theater ? undefined : BoxSize.S6}
+        center
+        padded={theater ? undefined : BoxPadded.LR}
+      >
+        <video
+          ref={setElem}
+          src={url}
+          controls={true}
+          muted
+          className={modClassNames(styles, 'video')}
+        />
+      </Box>
+      <Box size={BoxSize.S6} center padded={BoxPadded.LR}>
+        <Flex justifyContent={FlexJustifyContent.SpaceBetween} gap="8px">
+          <code>{name}</code>
+          <ButtonGroup gap>
+            <Button variant={ButtonVariant.Subtle} onClick={toggleTheater}>
+              &#9633;
+            </Button>
+          </ButtonGroup>
+        </Flex>
+      </Box>
     </Flex>
   );
 };
@@ -431,6 +460,13 @@ const Checkmark = () => (
     <polyline points="5 12 10 17 20 7" />
   </svg>
 );
+
+const durationStr = (ms: number) => {
+  const v = Math.floor(ms / 1000);
+  const m = Math.floor(v / 60);
+  const s = v - m * 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+};
 
 type MemberStatus = {
   name: string;
@@ -510,7 +546,7 @@ const MemberList: FC<MemberListProps> = ({roomStatus, videoState, pingRef}) => {
               <Fragment>&#9208;</Fragment>
             )}
           </span>{' '}
-          {Math.floor(
+          {durationStr(
             approxPos(
               videoState.current.play,
               videoState.current.pos,
@@ -520,9 +556,8 @@ const MemberList: FC<MemberListProps> = ({roomStatus, videoState, pingRef}) => {
               pingRef.current,
               videoState.current.localAt,
               curTime,
-            ) / 1000,
+            ),
           )}
-          s
         </code>
       </li>
       {Object.entries(roomStatus.members).map(([id, member]) => (
@@ -564,7 +599,7 @@ const MemberList: FC<MemberListProps> = ({roomStatus, videoState, pingRef}) => {
                 <Fragment>&#9208;</Fragment>
               )}
             </span>{' '}
-            {Math.floor(
+            {durationStr(
               approxPos(
                 member.play,
                 member.pos,
@@ -574,9 +609,8 @@ const MemberList: FC<MemberListProps> = ({roomStatus, videoState, pingRef}) => {
                 pingRef.current,
                 roomStatus.localAt,
                 curTime,
-              ) / 1000,
+              ),
             )}
-            s
           </code>
         </li>
       ))}
@@ -1189,7 +1223,11 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
   ]);
 
   return (
-    <Flex dir={FlexDir.Col} gap="8px">
+    <Flex
+      wrap={FlexWrap.Wrap}
+      justifyContent={FlexJustifyContent.SpaceBetween}
+      gap="8px"
+    >
       {isNonNil(roomStatus) && (
         <MemberList
           roomStatus={roomStatus}
@@ -1234,15 +1272,17 @@ const Home: FC = () => {
   );
 
   return (
-    <Box size={BoxSize.S6} center padded>
-      <Flex dir={FlexDir.Col} gap="16px">
-        {videoURL.length > 0 && (
-          <Video elem={videoElem} setElem={setVideoElem} url={videoURL} />
-        )}
-        <StatusBar room={room} videoElem={videoElem} load={loadVideoByURL} />
-        <Search room={room} />
-      </Flex>
-    </Box>
+    <Flex dir={FlexDir.Col} gap="16px">
+      {videoURL.length > 0 && (
+        <Video elem={videoElem} setElem={setVideoElem} url={videoURL} />
+      )}
+      <Box size={BoxSize.S6} center padded={BoxPadded.LR}>
+        <Flex dir={FlexDir.Col} gap="16px">
+          <StatusBar room={room} videoElem={videoElem} load={loadVideoByURL} />
+          <Search room={room} />
+        </Flex>
+      </Box>
+    </Flex>
   );
 };
 
