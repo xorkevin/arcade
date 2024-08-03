@@ -64,6 +64,12 @@
 
   .video {
     width: 100%;
-    max-height: calc(100vh - 64px);
+    max-height: calc(100vh - 128px);
+  }
+
+  .video-controls {
+    & > button {
+      padding: 0.125rem 0.5rem;
+    }
   }
 }

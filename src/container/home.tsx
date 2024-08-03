@@ -434,7 +434,7 @@ const Video: FC<VideoProps> = ({elem, setElem, url}) => {
       <Box size={BoxSize.S6} center padded={BoxPadded.LR}>
         <Flex justifyContent={FlexJustifyContent.SpaceBetween} gap="8px">
           <code>{name}</code>
-          <ButtonGroup gap>
+          <ButtonGroup gap className={modClassNames(styles, 'video-controls')}>
             <Button variant={ButtonVariant.Subtle} onClick={toggleTheater}>
               &#9633;
             </Button>
@@ -1273,15 +1273,15 @@ const Home: FC = () => {
   );
 
   return (
-    <Flex dir={FlexDir.Col} gap="16px">
+    <Flex dir={FlexDir.Col} gap="8px">
       {videoURL.length > 0 && (
         <Video elem={videoElem} setElem={setVideoElem} url={videoURL} />
       )}
       <Box size={BoxSize.S6} center padded={BoxPadded.LR}>
-        <Flex dir={FlexDir.Col} gap="16px">
-          <StatusBar room={room} videoElem={videoElem} load={loadVideoByURL} />
-          <Search room={room} />
-        </Flex>
+        <StatusBar room={room} videoElem={videoElem} load={loadVideoByURL} />
+      </Box>
+      <Box size={BoxSize.S6} center padded>
+        <Search room={room} />
       </Box>
     </Flex>
   );
