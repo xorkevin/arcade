@@ -34,10 +34,11 @@ import {
   isSignalAborted,
   modClassNames,
   parseJSON,
+  randomHexID,
   valToEnum,
 } from '@xorkevin/nuke/computil';
 import {WS} from '@xorkevin/nuke/net';
-import {type Route, Routes} from '@xorkevin/nuke/router';
+import {type Route, Routes, useRouter} from '@xorkevin/nuke/router';
 
 import styles from './app.module.css';
 
@@ -62,7 +63,7 @@ const WSStatus = () => {
     if (!ws.isOpen()) {
       return;
     }
-    const id = crypto.randomUUID();
+    const id = randomHexID();
     ws.send(
       JSON.stringify({
         id,
@@ -197,12 +198,12 @@ const App: FC = () => {
     },
     [setColorScheme],
   );
+  const {url} = useRouter();
+  const host = url.host;
   const ws = useMemo(() => {
-    const ws = new WS('ws://localhost:3000/api/ws', [
-      'xorkevin.dev-arcade.v1alpha1',
-    ]);
+    const ws = new WS(`ws://${host}/api/ws`, ['xorkevin.dev-arcade.v1alpha1']);
     return ws;
-  }, []);
+  }, [host]);
   return (
     <WSContext.Provider value={ws}>
       <div>

@@ -1,5 +1,6 @@
 import {
   type FC,
+  Fragment,
   type MutableRefObject,
   useCallback,
   useContext,
@@ -7,7 +8,6 @@ import {
   useMemo,
   useRef,
   useState,
-  Fragment,
 } from 'react';
 
 import {
@@ -42,6 +42,7 @@ import {
   modClassNames,
   parseJSON,
   parseURL,
+  randomHexID,
   sleep,
   useDebounceCallback,
 } from '@xorkevin/nuke/computil';
@@ -465,7 +466,7 @@ const durationStr = (ms: number) => {
   const v = Math.floor(ms / 1000);
   const m = Math.floor(v / 60);
   const s = v - m * 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
+  return `${m.toString()}:${String(s).padStart(2, '0')}`;
 };
 
 type MemberStatus = {
@@ -630,7 +631,7 @@ const RoomControls: FC<RoomControlsProps> = ({nameRef, sendPing}) => {
 
   const createNewRoom = useCallback(() => {
     const search = new URLSearchParams({
-      room: crypto.randomUUID(),
+      room: randomHexID(),
     }).toString();
     navigate({search}, {replace: true});
   }, [navigate]);
@@ -716,7 +717,7 @@ const StatusBar: FC<StatusBarProps> = ({room, videoElem, load}) => {
     if (!ws.isOpen() || isNil(room)) {
       return;
     }
-    const id = crypto.randomUUID();
+    const id = randomHexID();
     ws.send(
       JSON.stringify({
         id,
