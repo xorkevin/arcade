@@ -698,7 +698,7 @@ const wrappingLeq = (a: number, b: number) => {
   return a > b;
 };
 
-const approxEq = (a: number, b: number) => abs(a, b) < 0.125;
+const approxEq = (a: number, b: number) => abs(a, b) < 0.500;
 
 type StatusBarProps = {
   room: string | undefined;
