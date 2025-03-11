@@ -2,6 +2,7 @@ import {
   type ChangeEventHandler,
   type FC,
   Suspense,
+  createElement,
   lazy,
   useCallback,
   useContext,
@@ -50,7 +51,9 @@ const routes: Route[] = [
   {
     path: '',
     exact: true,
-    component: lazy(async () => await import('./container/home.js')),
+    element: createElement(
+      lazy(async () => await import('./container/home.js')),
+    ),
   },
 ];
 
